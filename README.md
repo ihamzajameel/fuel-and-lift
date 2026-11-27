@@ -55,6 +55,14 @@ npm run pages:actions             # switch Pages back to the Actions workflow
 
 Public repos get unlimited Actions minutes, so this is only needed if Actions is unavailable.
 
+## Logging, missed items and corrections
+
+- **Log my usual day** (Today / Food): your routine as a pre-ticked checklist, logged in one press. **Extra food** and **Photo of meal** sit next to it for anything outside the plan.
+- **Missed**: mark any routine item missed from Today's plan, from Telegram (✗ Missed), or for any date in Progress → Habits → **Day check**. Habits also shows 30-day consistency per item (done / missed / unmarked).
+- **Supplement stock**: stock, pack size and start date per supplement; each tick uses a dose, Today shows how long the stock lasts, reminders warn at 5 left and say when it's out.
+- **Owner corrections**: a JSON array of events written to `/data/inbox.json` on the bot (`railway ssh --service bot`) becomes normal events the app applies (water, preset, food, supp, done, missed, body, stock, program, undo). Entries made in the app itself are removed in Food → Log.
+- **Updates**: the app checks for a new build whenever it returns to the foreground and reloads once; the service worker revalidates the page on every load.
+
 ## How reminders work (and their limits)
 
 - While the app is open or recently backgrounded, reminders show an in-app banner with a chime (plus vibration on Android) and a system notification when the app isn't in front.
