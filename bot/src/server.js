@@ -61,9 +61,44 @@ const currentDay = (now = Date.now()) => logicalNow(now, st().tz, st().dayStartH
 const appUrl = () => st()?.appUrl || 'https://fit.fineradesk.com/';
 
 /** Preset events carry the meal's numbers so the app can log them even if that preset changed. */
-function presetEvent(presetId, day) {
+function presetEvent(presetId, day, at) {
   const p = (st()?.presets || []).find((x) => x.id === presetId);
-  return addEvent('preset', p ? { presetId, name: p.name, kcal: p.kcal, p: p.p, c: p.c, f: p.f, qty: p.qty, unit: p.unit } : { presetId }, day);
+  return addEvent('preset', p ? { presetId, name: p.name, kcal: p.kcal, p: p.p, c: p.c, f: p.f, qty: p.qty, unit: p.unit } : { presetId }, day, at);
+}
+
+/**
+ * Owner corrections: a JSON array dropped at /data/inbox.json (only reachable with Railway
+ * access to this service) becomes normal events that the app applies. Used to fix logs on request.
+ */
+import fs from 'node:fs';
+const INBOX = '/data/inbox.json';
+function processInbox() {
+  if (!fs.existsSync(INBOX)) return;
+  let items = [];
+  try {
+    items = JSON.parse(fs.readFileSync(INBOX, 'utf8'));
+  } catch (e) {
+    log('inbox: bad json', e.message);
+  }
+  fs.renameSync(INBOX, `${INBOX}.done-${Date.now()}`);
+  let n = 0;
+  for (const it of Array.isArray(items) ? items : []) {
+    if (it.type === 'undo') {
+      const ref = db().events.find((e) => e.id === it.ref);
+      if (ref && !isUndone(ref.id)) {
+        undoEvent(ref);
+        n++;
+      }
+    } else if (it.type === 'preset') {
+      presetEvent(it.presetId, it.day, it.at);
+      n++;
+    } else if (it.type && it.day) {
+      addEvent(it.type, it.data || {}, it.day, it.at);
+      n++;
+    }
+  }
+  save();
+  log(`inbox: added ${n} events`);
 }
 
 function remindersActionsEvents(rem, day, okey, waterOverride, chosenPresetId) {
@@ -612,6 +647,13 @@ server.listen(PORT, async () => {
   }
   pollLoop();
   setInterval(() => tick().catch((e) => log('tick error', e.message)), 30000);
+  setInterval(() => {
+    try {
+      processInbox();
+    } catch (e) {
+      log('inbox error', e.message);
+    }
+  }, 10000);
   setTimeout(() => tick().catch(() => {}), 5000);
 });
 

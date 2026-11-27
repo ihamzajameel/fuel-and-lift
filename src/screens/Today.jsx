@@ -5,6 +5,7 @@ import { useApp } from '../lib/app-context';
 import { Button, Card, Dot, NumInput, ProgressBar, Ring, ScreenHeader, TONES, cx, fmtNum } from '../components/ui';
 import FoodSheet from '../components/FoodSheet';
 import UsualDaySheet from '../components/UsualDaySheet';
+import PhotoButton from '../components/PhotoButton';
 import { reminderIcon } from '../components/chrome';
 import { dayTotals, fmtL, paceStatus, waterPaceTarget } from '../lib/nutrition';
 import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed } from '../lib/reminders';
@@ -82,7 +83,7 @@ export default function Today() {
         <EnergyCard tot={tot} />
         <WaterCard tot={tot} />
         <PlanCard />
-        <QuickLog onCustom={() => setFoodSheet(true)} />
+        <QuickLog onCustom={(x) => setFoodSheet(x || true)} />
         <SupplementsCard />
         <RecoveryCard />
         <CoachTip />
@@ -91,7 +92,14 @@ export default function Today() {
           Your day resets at {fmt12(`${String(start).padStart(2, '0')}:00`)}. Anything logged after midnight counts toward today.
         </p>
       </div>
-      <FoodSheet open={foodSheet} onClose={() => setFoodSheet(false)} mode="log" dateKey={today} />
+      <FoodSheet
+        open={!!foodSheet}
+        onClose={() => setFoodSheet(false)}
+        mode="log"
+        dateKey={today}
+        initial={foodSheet?.initial}
+        estimate={foodSheet?.estimate}
+      />
     </>
   );
 }
@@ -351,6 +359,13 @@ function QuickLog({ onCustom }) {
         Log my usual day
       </Button>
       <UsualDaySheet open={usual} onClose={() => setUsual(false)} />
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <Button icon={Plus} onClick={() => onCustom()}>
+          Extra food
+        </Button>
+        <PhotoButton size="md" onEstimate={onCustom} label="Photo of meal" />
+      </div>
+      <p className="mb-2 text-xs text-faint">Ate something outside your plan? Tap Extra food, take a photo, or tap an add-on below.</p>
       <div className="grid grid-cols-2 gap-2">
         {state.presets.map((p) => {
           const count = foods.filter((f) => f.presetId === p.id).length;

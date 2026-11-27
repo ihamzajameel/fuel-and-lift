@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Camera, ChevronLeft, ChevronRight, Droplet, History, ListChecks, LoaderCircle, Pencil, Plus, Star, Trash2, UtensilsCrossed } from 'lucide-react';
-import { useRef } from 'react';
-import { botApi } from '../lib/sync';
+import { ChevronLeft, ChevronRight, Droplet, History, ListChecks, Pencil, Plus, Star, Trash2, UtensilsCrossed } from 'lucide-react';
+import PhotoButton from '../components/PhotoButton';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Dot, Empty, IconButton, ProgressBar, ScreenHeader, TONES, fmtNum } from '../components/ui';
@@ -17,47 +16,7 @@ export default function Food() {
   const [date, setDate] = useState(today);
   const [sheet, setSheet] = useState(null); // { mode, initial }
   const [usual, setUsual] = useState(false);
-  const [analysing, setAnalysing] = useState(false);
-  const photoRef = useRef(null);
-  const tg = state.meta.tg || {};
 
-  // Shrink the photo on the phone (max 1280 px JPEG) before sending it for analysis.
-  const toJpeg = async (file) => {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.82));
-    const dataUrl = await new Promise((r) => {
-      const fr = new FileReader();
-      fr.onload = () => r(fr.result);
-      fr.readAsDataURL(blob);
-    });
-    return String(dataUrl).split(',')[1];
-  };
-  const onPhoto = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setAnalysing(true);
-    try {
-      const image = await toJpeg(file);
-      const { estimate: est } = await botApi(tg.url, '/api/estimate', { method: 'POST', body: { image, mediaType: 'image/jpeg' } });
-      if (!est.is_food) return toast("That doesn't look like food. Try another photo.");
-      const t = est.total;
-      setSheet({ mode: 'log', initial: { name: est.meal_name, qty: 1, unit: 'serving', kcal: t.kcal, p: t.protein_g, c: t.carbs_g, f: t.fat_g }, estimate: est });
-    } catch (err) {
-      toast(err.code === 'vision_not_configured' ? 'Photo logging needs the API key on the bot server.' : `Couldn't analyse the photo: ${err.message}`);
-    } finally {
-      setAnalysing(false);
-    }
-  };
-  const takePhoto = () => {
-    if (!tg.paired || !tg.url) return toast('Photo logging runs on your bot. Connect Telegram first (More → Reminders).');
-    photoRef.current?.click();
-  };
   const day = state.days[date];
   const tot = dayTotals(day);
   const t = state.targets;
@@ -96,13 +55,10 @@ export default function Food() {
         subtitle="Calories & macros"
         right={
           <>
-            <Button size="sm" icon={analysing ? LoaderCircle : Camera} onClick={takePhoto} disabled={analysing} aria-label="Log food from a photo" className={analysing ? '[&_svg]:animate-spin' : ''}>
-              {analysing ? 'Reading…' : 'Photo'}
-            </Button>
+            <PhotoButton onEstimate={({ initial, estimate }) => setSheet({ mode: 'log', initial, estimate })} />
             <Button variant="primary" size="sm" icon={Plus} onClick={() => setSheet({ mode: 'log' })}>
               Add
             </Button>
-            <input ref={photoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhoto} />
           </>
         }
       />
