@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Bell, BellRing, Check, ChevronRight, Droplet, Dumbbell, Flame, Pill, Plus, Undo2, Utensils, CalendarClock, Footprints, Lightbulb, ListChecks, Minus, MoonStar, TriangleAlert, CircleCheck, Info, X } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
@@ -6,6 +6,7 @@ import { Button, Card, Dot, NumInput, ProgressBar, Ring, ScreenHeader, TONES, cx
 import FoodSheet from '../components/FoodSheet';
 import UsualDaySheet from '../components/UsualDaySheet';
 import PhotoButton from '../components/PhotoButton';
+import SleepEditor from '../components/SleepEditor';
 import { reminderIcon } from '../components/chrome';
 import { dayTotals, fmtL, paceStatus, waterPaceTarget } from '../lib/nutrition';
 import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed } from '../lib/reminders';
@@ -535,29 +536,14 @@ function RecoveryCard() {
   const t = state.targets;
   const sleep = day.sleep || null;
   const [steps, setSteps] = useState(day.steps ?? '');
-  const hours = sleep?.hours;
-  const setHours = (h) => mutate((d) => ops.setSleep(d, today, { ...(d.days[today]?.sleep || {}), hours: Math.max(0, Math.min(14, h)) }));
+  useEffect(() => setSteps(day.steps ?? ''), [day.steps]); // follow updates from Telegram or another device
   const commitSteps = () => {
     if (String(steps) !== String(day.steps ?? '')) mutate((d) => ops.setSteps(d, today, steps));
   };
   return (
     <Card title="Recovery" icon={MoonStar} iconClass="text-fat">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-medium">Sleep last night</p>
-          <p className="text-xs text-faint">Goal {t.sleepHours} h</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" aria-label="Less sleep" onClick={() => setHours((hours ?? t.sleepHours) - 0.5)} className="press grid h-11 w-11 place-items-center rounded-xl border border-line bg-surface-2">
-            <Minus size={18} />
-          </button>
-          <span className={cx('tnum w-16 text-center text-xl font-bold', hours == null && 'text-faint')}>{hours == null ? '–' : `${hours}h`}</span>
-          <button type="button" aria-label="More sleep" onClick={() => setHours(hours == null ? t.sleepHours : hours + 0.5)} className="press grid h-11 w-11 place-items-center rounded-xl border border-line bg-surface-2">
-            <Plus size={18} />
-          </button>
-        </div>
-      </div>
-      {hours != null && (
+      <SleepEditor dateKey={today} />
+      {sleep?.hours && (
         <div className="mt-2 grid grid-cols-4 gap-1.5">
           {QUALITY.map((q, i) => (
             <button
@@ -581,7 +567,17 @@ function RecoveryCard() {
           <ProgressBar value={Number(day.steps) || 0} max={t.steps} tone="kcal" className="mt-1.5" height="h-1.5" />
         </div>
         <div className="w-28">
-          <NumInput value={steps} onChange={setSteps} onBlur={commitSteps} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} inputMode="numeric" placeholder="0" aria-label="Steps today" className="!h-11" />
+          <NumInput
+            id="steps-input"
+            value={steps}
+            onChange={setSteps}
+            onBlur={commitSteps}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            inputMode="numeric"
+            placeholder="0"
+            aria-label="Steps today"
+            className="!h-11"
+          />
         </div>
       </div>
     </Card>

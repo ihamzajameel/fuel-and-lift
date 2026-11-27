@@ -170,6 +170,8 @@ export function isDone(rem, okey, v) {
   if (a.presetIds?.length && a.presetIds.some((id) => v.presetIds.has(id))) return true;
   if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((id) => v.supps[id])) return true;
   if (a.openTab === 'train' && v.trained) return true;
+  if (a.sleepUsual && v.sleep != null) return true;
+  if (a.stepsPrompt && v.steps != null) return true;
   return false;
 }
 
@@ -191,7 +193,7 @@ export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '
 export const L = (ml) => `${(ml / 1000).toFixed(ml % 100 === 0 ? 1 : 2)} L`;
 export const n0 = (x) => Math.round(Number(x) || 0).toLocaleString('en-US');
 
-export const EMOJI = { coffee: '🥤', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', nut: '🥜', ruler: '📏', bell: '🔔' };
+export const EMOJI = { coffee: '🥤', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', nut: '🥜', ruler: '📏', footprints: '👟', bell: '🔔' };
 
 export function describeActions(rem, state) {
   const a = rem.actions || {};
@@ -201,6 +203,7 @@ export function describeActions(rem, state) {
     if (p) parts.push(p.name);
   }
   if (a.waterMl) parts.push(`${a.waterMl} ml`);
+  if (a.sleepUsual && state.sleepPlan) parts.push(`sleep ${state.sleepPlan.bed}–${state.sleepPlan.wake}`);
   for (const id of a.supplementIds || []) {
     const s = (state.supplements || []).find((x) => x.id === id);
     if (s && s.stock === 0) continue; // out of stock: nothing to take
@@ -296,6 +299,19 @@ export function parsePart(part, state) {
   }
   if (/^(?:(?:gym|workout|training|lifting)\s*(?:done|finished|complete|completed|ok|✅)?|trained|lifted|done\s*(?:gym|workout|training))$/.test(l)) {
     return { type: 'workout', data: { asPlanned: true }, label: `🏋️ Workout logged as planned${state.nextWorkout ? `: ${state.nextWorkout}` : ''}` };
+  }
+  // "sleep 3 to 10:10", "slept 2:30am-10am"
+  if ((m = l.match(/^(?:sleep|slept)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/))) {
+    const hm = (h, mm, ap) => {
+      let H = Number(h) % 12;
+      if (ap === 'pm' || (!ap && Number(h) === 12)) H += 12;
+      if (!ap && Number(h) > 12) H = Number(h);
+      return `${String(H % 24).padStart(2, '0')}:${String(Number(mm || 0)).padStart(2, '0')}`;
+    };
+    const bed = hm(m[1], m[2], m[3]);
+    const wake = hm(m[4], m[5], m[6]);
+    const hours = Math.round((((toMin(wake) - toMin(bed) + 1440) % 1440) / 60) * 100) / 100;
+    if (hours > 0 && hours <= 16) return { type: 'sleep', data: { hours, bed, wake }, label: `😴 Sleep ${bed}–${wake} (${Math.floor(hours)}h ${Math.round((hours % 1) * 60)}m)` };
   }
   if ((m = l.match(/^(?:sleep|slept)\s*[:=]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:h|hrs?|hours?)?$/))) {
     const h = num(m[1]);

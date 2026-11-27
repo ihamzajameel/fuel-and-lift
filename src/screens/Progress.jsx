@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Activity, Check, ChevronLeft, ChevronRight, CircleCheck, Dumbbell, Flame, Info, ListChecks, Moon, Ruler, Scale, Sparkles, Target, Trash2, TriangleAlert, Trophy, Footprints, X } from 'lucide-react';
 import { dayTimeline, isOccurrenceDone, isOccurrenceMissed, routineConsistency } from '../lib/reminders';
 import { reminderIcon } from '../components/chrome';
+import SleepEditor from '../components/SleepEditor';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Empty, Field, IconButton, NumInput, ScreenHeader, Segmented, cx, fmtNum } from '../components/ui';
@@ -9,7 +10,7 @@ import { ColumnChart, LineChart } from '../components/charts';
 import { bestStreak, currentStreak, lastNKeys, nutritionSummary, takenInLast, trend, weeklyBody } from '../lib/stats';
 import { bodyTrend, dailyScore, insights } from '../lib/coach';
 import { exerciseNamesWithHistory, fmtSet, strengthHistory } from '../lib/workout';
-import { dayTotals, fromLen, lenUnit, toLen } from '../lib/nutrition';
+import { dayTotals, fmtHM, fromLen, lenUnit, toLen } from '../lib/nutrition';
 import { addDays, fmt12, fmtDay, fmtShortDate, parseYmd } from '../lib/time';
 import * as ops from '../lib/ops';
 
@@ -241,6 +242,18 @@ function BodyTab() {
       <Card title="Goals" icon={Target} right={<Segmented size="sm" className="w-24" value={unit} onChange={(v) => mutate((d) => (d.settings.measureUnit = v))} options={[{ value: 'in', label: 'in' }, { value: 'cm', label: 'cm' }]} />}>
         <div className="space-y-4">
           <GoalBar label="Body weight" start={startWeight} now={w?.value ?? state.profile.weightKg} goal={state.profile.targetWeight} fmt={(v) => `${v} kg`} sub={eta} />
+          <GoalBar
+            label="Waist (belly)"
+            start={firstOf('waist')}
+            now={tr.waist?.value}
+            goal={goals.waist ?? height * 0.5}
+            fmt={L}
+            sub={
+              tr.waist
+                ? `Healthy is under ${L(height * 0.5)} (half your height). On a lean bulk, keep it from growing.`
+                : 'Measure at the belly button on Sunday mornings to start tracking.'
+            }
+          />
           <GoalBar label="Chest" start={firstOf('chest')} now={tr.chest?.value} goal={goals.chest} fmt={L} />
           <GoalBar
             label="Bicep"
@@ -548,13 +561,24 @@ function HabitsTab() {
         </div>
       </Card>
 
+      <Card title="Sleep · 14 days" icon={Moon}>
+        <ColumnChart
+          ariaLabel="Hours slept, last 14 days"
+          bars={lastNKeys(today, 14).map((k) => ({ key: k, label: String(parseYmd(k).getDate()), sub: `${fmtDay(k, today)} · ${fmtHM(state.days[k]?.sleep?.hours)}`, value: state.days[k]?.sleep?.hours || 0 }))}
+          target={state.targets.sleepHours}
+          targetLabel={`Goal ${fmtHM(state.targets.sleepHours)}`}
+          unit="h"
+          tone="var(--fat)"
+        />
+        <p className="mt-1 text-xs text-faint">Fix any night in Day check above: pick the date and change the times.</p>
+      </Card>
       <div className="grid grid-cols-2 gap-2">
         <Card className="!p-3.5">
           <p className="flex items-center gap-1.5 text-xs text-muted">
             <Moon size={14} /> Avg sleep (7d)
           </p>
-          <p className="tnum mt-0.5 text-2xl font-bold">{avg(sleeps) ? avg(sleeps).toFixed(1) : '–'}<span className="text-sm font-normal text-muted"> h</span></p>
-          <p className="text-xs text-faint">goal {state.targets.sleepHours} h</p>
+          <p className="tnum mt-0.5 text-2xl font-bold">{avg(sleeps) ? fmtHM(avg(sleeps)) : '–'}</p>
+          <p className="text-xs text-faint">goal {fmtHM(state.targets.sleepHours)}</p>
         </Card>
         <Card className="!p-3.5">
           <p className="flex items-center gap-1.5 text-xs text-muted">
@@ -637,6 +661,9 @@ function DayCheck({ date, setDate }) {
           })}
         </ul>
         {occ.length === 0 && <p className="text-sm text-muted">No routine items on this day.</p>}
+        <div className="mt-3 border-t border-line/60 pt-3">
+          <SleepEditor key={date} dateKey={date} title={date === today ? 'Sleep last night' : `Sleep (night before ${fmtDay(date, today)})`} />
+        </div>
       </Card>
     </section>
   );

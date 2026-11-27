@@ -23,7 +23,7 @@ import { Button, Card, Field, IconButton, NumInput, ScreenHeader, Segmented, Tex
 import Reminders from './Reminders';
 import { DEFAULT_BOT_URL, adoptRemote, botApi, deviceKey, syncOnce, syncStatus } from '../lib/sync';
 import { Laptop, Link2, RefreshCw, Smartphone as PhoneIcon } from 'lucide-react';
-import { energyEstimate, fromLen, kcalFromMacros, lenUnit, toLen } from '../lib/nutrition';
+import { energyEstimate, fmtHM, fromLen, kcalFromMacros, lenUnit, profileAge, sleepSpan, toLen } from '../lib/nutrition';
 import { makeBackup, parseBackup } from '../lib/storage';
 import { makeDefaultState } from '../lib/defaults';
 import { daysBetween, fmt12, uid, ymd } from '../lib/time';
@@ -81,34 +81,43 @@ function SettingsMain() {
   // ---- backup ----
   const backupText = () => JSON.stringify(makeBackup(state), null, 1);
   const fileName = `fuel-lift-backup-${ymd(new Date())}.json`;
+  // Android's share sheet only accepts a few file types (not .json), so the shared copy is a .txt with the same JSON inside.
+  const shareFile = () => new File([backupText()], `fuel-lift-backup-${ymd(new Date())}.txt`, { type: 'text/plain' });
   const markBackedUp = () => mutate((d) => (d.meta.lastBackup = Date.now()));
   const download = () => {
-    const blob = new Blob([backupText()], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    markBackedUp();
-    toast('Backup downloaded');
+    try {
+      const blob = new Blob([backupText()], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      markBackedUp();
+      toast('Backup saved to your Downloads');
+    } catch (e) {
+      toast(`Download failed (${e.message}). Try Share instead.`);
+    }
   };
   const canShareFiles = (() => {
     try {
-      return !!navigator.canShare?.({ files: [new File(['x'], 'x.json', { type: 'application/json' })] });
+      return !!navigator.canShare?.({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] });
     } catch {
       return false;
     }
   })();
   const share = async () => {
     try {
-      const file = new File([backupText()], fileName, { type: 'application/json' });
-      await navigator.share({ files: [file], title: 'Fuel & Lift backup' });
+      await navigator.share({ files: [shareFile()], title: 'Fuel & Lift backup' });
       markBackedUp();
+      toast('Backup shared');
     } catch (e) {
-      if (e?.name !== 'AbortError') toast('Sharing failed. Use Download instead.');
+      if (e?.name === 'AbortError') return;
+      toast(`Sharing didn't work (${e?.message || e}). Using Download instead.`);
+      download();
     }
   };
   const onImport = async (e) => {
@@ -171,8 +180,8 @@ function SettingsMain() {
 
         <Card title="Profile" icon={User}>
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Age">
-              <NumInput value={p.age} onChange={(v) => setP('age', num(v))} inputMode="numeric" />
+            <Field label={`Born (age ${profileAge(p)})`}>
+              <input type="date" value={p.dob || ''} max={ymd(new Date())} onChange={(e) => setP('dob', e.target.value || null)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-2 text-sm text-fg" />
             </Field>
             <Field label="Weight">
               <NumInput value={p.weightKg} onChange={(v) => setP('weightKg', num(v))} suffix="kg" />
@@ -260,7 +269,20 @@ function SettingsMain() {
               <input type="time" value={p.gymTime} onChange={(e) => setP('gymTime', e.target.value)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg" />
             </Field>
             <Field label="Bedtime">
-              <input type="time" value={p.bedTime} onChange={(e) => setP('bedTime', e.target.value)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg" />
+              <input
+                type="time"
+                value={p.bedTime}
+                onChange={(e) => e.target.value && mutate((d) => ((d.profile.bedTime = e.target.value), (d.targets.sleepHours = sleepSpan(e.target.value, d.profile.wakeTime || '10:10'))))}
+                className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg"
+              />
+            </Field>
+            <Field label="Wake up" hint={`Sleep goal ${fmtHM(t.sleepHours)}`}>
+              <input
+                type="time"
+                value={p.wakeTime || '10:10'}
+                onChange={(e) => e.target.value && mutate((d) => ((d.profile.wakeTime = e.target.value), (d.targets.sleepHours = sleepSpan(d.profile.bedTime || '02:00', e.target.value))))}
+                className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg"
+              />
             </Field>
             <Field label="Water: % done by" hint={`${t.waterFrontPct}% by ${fmt12(t.waterFrontBy)}`}>
               <div className="flex gap-2">
@@ -385,7 +407,8 @@ function SettingsMain() {
               </Button>
             )}
           </div>
-          <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={onImport} />
+          <input ref={fileRef} type="file" accept="application/json,.json,text/plain,.txt" className="hidden" onChange={onImport} />
+          <p className="mt-2 text-xs text-faint">With Devices & sync on, your bot server also keeps a full copy that updates automatically.</p>
           <Button variant="danger" size="sm" icon={Trash2} className="mt-4" onClick={resetAll}>
             Erase all data
           </Button>

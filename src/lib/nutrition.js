@@ -74,7 +74,8 @@ export const fmtL = (ml) => `${(ml / 1000).toFixed(ml % 100 === 0 ? 1 : 2)} L`;
 
 /** Mifflin–St Jeor BMR and maintenance estimate, shown as a reference in Settings. */
 export function energyEstimate(profile) {
-  const { weightKg: w, heightCm: h, age: a, sex, activity } = profile;
+  const { weightKg: w, heightCm: h, sex, activity } = profile;
+  const a = ageFrom(profile.dob) ?? profile.age;
   const bmr = 10 * w + 6.25 * h - 5 * a + (sex === 'female' ? -161 : 5);
   return { bmr: Math.round(bmr), tdee: Math.round(bmr * (Number(activity) || 1.55)) };
 }
@@ -83,3 +84,22 @@ export function energyEstimate(profile) {
 export const lenUnit = (state) => state.settings.measureUnit || 'in';
 export const toLen = (cm, unit) => (cm == null ? null : unit === 'in' ? Math.round((cm / 2.54) * 10) / 10 : Math.round(cm * 10) / 10);
 export const fromLen = (v, unit) => (v === '' || v == null ? '' : unit === 'in' ? Math.round(Number(v) * 2.54 * 100) / 100 : Number(v));
+
+// ---- age & sleep helpers ----
+export function ageFrom(dob, now = new Date()) {
+  if (!dob) return null;
+  const [y, m, d] = dob.split('-').map(Number);
+  let age = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--;
+  return age;
+}
+export const profileAge = (p) => ageFrom(p.dob) ?? p.age;
+export const sleepSpan = (bed, wake) => {
+  const toM = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return Math.round((((toM(wake) - toM(bed) + 1440) % 1440) / 60) * 100) / 100;
+};
+export const fmtHM = (h) => {
+  if (h == null) return '–';
+  const m = Math.round(Number(h) * 60);
+  return `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
+};

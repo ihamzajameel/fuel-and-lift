@@ -115,6 +115,8 @@ export function isOccurrenceDone(rem, occ, state) {
   if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((s) => day.supps?.[s])) return true;
   if (a.openTab === 'train' && state.sessions.some((s) => s.date === occ.dayKey && !s.rest)) return true;
   if (a.choosePresetIds?.length && !a.supplementIds?.length && (day.foods || []).some((f) => a.choosePresetIds.includes(f.presetId))) return true;
+  if (a.sleepUsual && day.sleep?.hours) return true;
+  if (a.stepsPrompt && day.steps != null) return true;
   return false;
 }
 
@@ -126,6 +128,7 @@ export const describeActions = (rem, presets, supplements) => {
     if (p) parts.push(p.name);
   }
   if (a.waterMl) parts.push(`${a.waterMl} ml water`);
+  if (a.sleepUsual) parts.push('usual sleep');
   for (const id of a.supplementIds || []) {
     const s = supplements?.find((x) => x.id === id);
     if (s && s.stock != null && s.stock !== '' && Number(s.stock) <= 0) continue;

@@ -88,10 +88,11 @@ export function buildSnapshot(state, today) {
   const doneToday = [...state.sessions].reverse().find((s) => s.date === today && !s.rest);
   const tg = state.meta.tg || {};
   return {
-    v: 3, // app build understands: stock packSize/since, missed, program.applySplit
+    v: 4, // app build understands: stock packSize/since, missed, program.applySplit, sleep bed/wake
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     dayStartHour: state.settings.dayStartHour,
     measureUnit: state.settings.measureUnit || 'in',
+    sleepPlan: { bed: state.profile.bedTime || '02:00', wake: state.profile.wakeTime || '10:10', hours: state.targets.sleepHours },
     goalType: state.profile.goalType,
     appUrl: location.origin + location.pathname,
     tgReminders: tg.reminders !== false,
@@ -217,9 +218,11 @@ function applyOne(d, e, byId) {
       d.sessions.push(s);
       break;
     }
-    case 'sleep':
-      ops.setSleep(d, day, { ...(d.days[day]?.sleep || {}), hours: Number(x.hours) });
+    case 'sleep': {
+      const prev = d.days[day]?.sleep || {};
+      ops.setSleep(d, day, { ...prev, hours: Number(x.hours), bed: x.bed ?? prev.bed, wake: x.wake ?? prev.wake });
       break;
+    }
     case 'steps':
       ops.setSteps(d, day, x.steps);
       break;

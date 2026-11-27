@@ -2,10 +2,11 @@
 // Plan v2 (27 Nov 2026): lean bulk 74 → 80 kg while keeping belly fat down,
 // built around the real day: wake 10:30 AM, office 12–8:30 PM, gym ~10 PM, dinner at midnight, sleep 2 AM.
 
-export const PLAN_VERSION = 2;
+export const PLAN_VERSION = 3;
 
 export const DEFAULT_PROFILE = {
   age: 31,
+  dob: '1995-06-26', // age is worked out from this
   sex: 'male',
   weightKg: 74,
   heightCm: 178, // 5'10"
@@ -14,7 +15,7 @@ export const DEFAULT_PROFILE = {
   goalType: 'lean_bulk', // lean_bulk | cut | recomp
   targetWeight: 80,
   goals: { chest: 101.6, arm: 40.6, armStretch: 43.2 }, // cm: chest 40", bicep 16" (stretch 17")
-  wakeTime: '10:30',
+  wakeTime: '10:10',
   gymTime: '22:00',
   bedTime: '02:00',
 };
@@ -27,7 +28,7 @@ export const DEFAULT_TARGETS = {
   f: 85,
   water: 2800,
   steps: 8000, // keeps fat gain low on a bulk
-  sleepHours: 8, // 2:00 AM -> 10:30 AM
+  sleepHours: 8.17, // 2:00 AM -> 10:10 AM (8 h 10 min)
   // Water pacing follows your routine: 12:30 PM, 4 PM, 7:30 PM, 1 L at the gym, 300 ml at midnight.
   waterStart: '12:00',
   waterFrontBy: '21:00',
@@ -107,6 +108,8 @@ export const DEFAULT_REMINDERS = [
     supplementIds: ['creatine'],
     choosePresetIds: ['dinner-roti-chicken', 'dinner-rice-chicken', 'dinner-roti-mutton', 'dinner-roti-daal'],
   }),
+  R('sleep-log', 'Good morning: log your sleep', '10:15', 'Slept your usual 2:00 AM to 10:10 AM? Tap to log it, or reply with different times, e.g. "sleep 3 to 10:10".', 'moon', { sleepUsual: true }),
+  R('steps', 'Steps today?', '01:15', "Check your phone's step counter and log today's steps. Goal: 8,000.", 'footprints', { stepsPrompt: true }),
   R('checkin', 'Weekly check-in', '11:00', 'Before your shake: weigh in, then measure waist (navel), chest and bicep. Reply e.g. "w 74.2, waist 33, chest 38.6, bicep 15.1".', 'ruler', {}, { days: [0] }),
   R('winddown', 'Wind down + Ashwagandha', '01:30', 'Ashwagandha, lights low, screens away. Sleep by 2:00 AM for 8 h before 10:30.', 'moon', { supplementIds: ['ashwa'] }),
   {
@@ -283,6 +286,21 @@ export const cloneProgram = (size) => {
   return { template: size, label: t.label, mode: t.mode || 'rotation', days: JSON.parse(JSON.stringify(t.days)) };
 };
 
+// ---------- Plan v3: date of birth, sleep 2:00–10:10, sleep & steps prompts ----------
+export function applyPlanV3(d) {
+  d.profile = { ...d.profile, dob: d.profile.dob || DEFAULT_PROFILE.dob, wakeTime: '10:10', bedTime: d.profile.bedTime || '02:00' };
+  d.targets = { ...d.targets, sleepHours: 8.17 };
+  for (const id of ['sleep-log', 'steps']) {
+    if (!d.reminders.some((r) => r.id === id)) {
+      const r = DEFAULT_REMINDERS.find((x) => x.id === id);
+      const at = d.reminders.findIndex((x) => x.id === (id === 'sleep-log' ? 'morning' : 'winddown'));
+      d.reminders.splice(at >= 0 ? at : d.reminders.length, 0, JSON.parse(JSON.stringify(r)));
+    }
+  }
+  d.meta = { ...d.meta, plan: 3 };
+  return d;
+}
+
 // ---------- Plan v2 for existing installs ----------
 /**
  * Plan v2 moves the old 4-day rotation to the Mon–Sat weekday split. If a workout was in
@@ -334,7 +352,7 @@ export function applyPlanV2(d, todayKey) {
     else d.body.push(entry);
     d.body.sort((a, b) => (a.date < b.date ? -1 : 1));
   }
-  d.meta = { ...d.meta, plan: PLAN_VERSION, planAppliedAt: Date.now() };
+  d.meta = { ...d.meta, plan: 2, planAppliedAt: Date.now() };
   return d;
 }
 

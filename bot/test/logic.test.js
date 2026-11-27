@@ -137,3 +137,14 @@ test('missed reminders count as handled', () => {
   assert.equal(isDone(state.reminders[0], 'morning@2026-11-26@09:30', v), true);
   assert.equal(isDone(state.reminders[2], 'postworkout@2026-11-26@00:45', v), true);
 });
+
+test('sleep ranges and step prompts', () => {
+  const p = (s) => parsePart(s, state);
+  assert.deepEqual(p('sleep 2 to 10:10').data, { hours: 8.17, bed: '02:00', wake: '10:10' });
+  assert.deepEqual(p('slept 2:30am-10am').data, { hours: 7.5, bed: '02:30', wake: '10:00' });
+  assert.deepEqual(p('sleep 11pm to 7').data, { hours: 8, bed: '23:00', wake: '07:00' });
+  assert.equal(p('sleep 7.5').data.hours, 7.5);
+  const v = { done: new Set(), missed: new Set(), presetIds: new Set(), supps: {}, sleep: 8, steps: null };
+  assert.equal(isDone({ actions: { sleepUsual: true } }, 'x', v), true);
+  assert.equal(isDone({ actions: { stepsPrompt: true } }, 'x', v), false);
+});

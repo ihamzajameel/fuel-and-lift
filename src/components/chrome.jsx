@@ -11,6 +11,7 @@ import {
   Egg,
   House,
   Moon,
+  Footprints,
   Nut,
   Pill,
   Ruler,
@@ -28,7 +29,7 @@ import { fmtDuration, fmtTime } from '../lib/time';
 import { describeActions } from '../lib/reminders';
 import { buzz, chime, showSystemNotification } from '../lib/notify';
 
-export const REMINDER_ICONS = { coffee: Coffee, droplet: Droplet, salad: Salad, egg: Egg, zap: Zap, dumbbell: Dumbbell, utensils: Utensils, moon: Moon, pill: Pill, nut: Nut, ruler: Ruler, bell: BellRing };
+export const REMINDER_ICONS = { coffee: Coffee, droplet: Droplet, salad: Salad, egg: Egg, zap: Zap, dumbbell: Dumbbell, utensils: Utensils, moon: Moon, pill: Pill, nut: Nut, ruler: Ruler, footprints: Footprints, bell: BellRing };
 export const reminderIcon = (name) => REMINDER_ICONS[name] || BellRing;
 
 const TABS = [
@@ -80,6 +81,7 @@ export function ReminderBanner() {
   const Icon = reminderIcon(rem.icon);
   const parts = describeActions(rem, state.presets, state.supplements).map((p) => (rem.dynamic === 'water' && /ml water/.test(p) ? `${b.ask || 250} ml water` : p));
   const opensTrain = rem.actions?.openTab === 'train';
+  const asksSteps = rem.actions?.stepsPrompt;
   return (
     <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-40 px-3">
       <div
@@ -104,7 +106,11 @@ export function ReminderBanner() {
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          {opensTrain ? (
+          {asksSteps ? (
+            <button type="button" onClick={() => actOnBanner(b, 'today')} className="press inline-flex h-10 items-center gap-1.5 rounded-xl bg-accent px-3.5 text-sm font-semibold text-on-accent">
+              <Footprints size={16} /> Enter steps
+            </button>
+          ) : opensTrain ? (
             <button type="button" onClick={() => actOnBanner(b, 'train')} className="press inline-flex h-10 items-center gap-1.5 rounded-xl bg-lift px-3.5 text-sm font-semibold text-on-accent">
               <Dumbbell size={16} /> Open workout
             </button>

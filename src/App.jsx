@@ -213,6 +213,9 @@ function Shell() {
       } else if (what === 'train') {
         mutate((d) => ops.markDone(d, key, base));
         go('train');
+      } else if (what === 'today') {
+        go('today');
+        setTimeout(() => document.getElementById('steps-input')?.focus(), 400);
       }
       dismissBanner(b.okey);
     },

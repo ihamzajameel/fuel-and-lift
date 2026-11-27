@@ -114,6 +114,7 @@ function remindersActionsEvents(rem, day, okey, waterOverride, chosenPresetId) {
     if (s && s.stock === 0) continue;
     out.push(addEvent('supp', { id, value: true }, day));
   }
+  if (a.sleepUsual && st().sleepPlan) out.push(addEvent('sleep', { ...st().sleepPlan }, day));
   out.push(addEvent('done', { okey }, day));
   return out;
 }
@@ -188,6 +189,9 @@ async function sendReminder(rem, okey, snoozed = false) {
     const ask = behind > 250 ? Math.min(400, Math.ceil(behind / 50) * 50) : 250;
     body = `Sip <b>${ask} ml</b>. You're at ${L(v.totals.water)} of ${L(t.water)}; pace target ${L(pace)} by now.`;
     rows.push([150, 250, 500].map((ml) => ({ text: `+${ml} ml`, callback_data: `w|${ml}|${okey}` })).filter((b) => fits(b.callback_data)));
+  } else if (rem.actions?.stepsPrompt) {
+    rows.push([6000, 8000, 10000, 12000].map((n) => ({ text: `${n / 1000}k`, callback_data: `stp|${n}|${okey}` })).filter((b) => fits(b.callback_data)));
+    body += '\nTap the closest, or reply with the exact number, e.g. <code>steps 9432</code>.';
   } else if (rem.actions?.openTab === 'train') {
     if (s.nextWorkout) body += `\n\nToday: <b>${esc(s.nextWorkout)}</b>`;
     rows.push([{ text: '🏋️ Open workout', url: `${appUrl()}?go=train` }]);
@@ -384,6 +388,15 @@ async function onCallback(cq) {
 
   if (!d.state) return answer('Open the app once first');
 
+  if (kind === 'stp') {
+    const n = Number(rest.shift());
+    const okey = rest.join('|');
+    const day = okey.split('@')[1] || currentDay();
+    addEvent('steps', { steps: n }, day);
+    addEvent('done', { okey }, day);
+    await markMessage(`👟 <i>${n.toLocaleString('en-US')} steps logged at ${time}</i>`);
+    return answer('Steps logged');
+  }
   if (kind === 'l' || kind === 'w' || kind === 'd' || kind === 's' || kind === 'x') {
     const ml = kind === 'w' ? Number(rest.shift()) : undefined;
     const okey = rest.join('|');
