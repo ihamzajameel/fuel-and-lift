@@ -284,6 +284,20 @@ export const cloneProgram = (size) => {
 };
 
 // ---------- Plan v2 for existing installs ----------
+/**
+ * Plan v2 moves the old 4-day rotation to the Mon–Sat weekday split. If a workout was in
+ * progress during the upgrade, this waits and switches as soon as it's finished or discarded.
+ * Returns true when it changed the program.
+ */
+export function ensureWeeklySplit(d) {
+  if (d.meta?.splitApplied || d.activeSession) return false;
+  d.meta = { ...d.meta, splitApplied: true };
+  if (d.program?.mode === 'weekly') return false;
+  if (d.program && String(d.program.template) !== '4') return false; // you picked another split yourself
+  d.program = cloneProgram(6);
+  return true;
+}
+
 const OLD_PRESET_IDS = ['shake', 'eggs-almonds', 'dates', 'lunch', 'dinner'];
 const cm = (inches) => Math.round(inches * 2.54 * 100) / 100;
 
@@ -311,7 +325,7 @@ export function applyPlanV2(d, todayKey) {
   const customRem = d.reminders.filter((r) => !r.builtin);
   d.reminders = [...JSON.parse(JSON.stringify(DEFAULT_REMINDERS)), ...customRem];
 
-  if (!d.activeSession) d.program = cloneProgram(6);
+  ensureWeeklySplit(d);
 
   if (todayKey && !d.body.some((b) => b.chest || b.arm)) {
     const i = d.body.findIndex((b) => b.date === todayKey);

@@ -11,6 +11,7 @@ import { dueBetween, isOccurrenceDone, isOccurrenceMissed, reminderContent } fro
 import { buzz, chime, showSystemNotification, unlockAudio } from './lib/notify';
 import * as ops from './lib/ops';
 import { dayKey, uid } from './lib/time';
+import { ensureWeeklySplit } from './lib/defaults';
 import { useBotSync } from './lib/sync';
 
 const LAST_CHECK = 'fuel-lift:lastCheck';
@@ -57,6 +58,12 @@ function Shell() {
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, [theme]);
+
+  // Plan v2: switch to the weekday split once no workout is in progress.
+  const splitPending = !state.meta.splitApplied && state.meta.plan >= 2;
+  useEffect(() => {
+    if (splitPending && !state.activeSession) mutate((d) => void ensureWeeklySplit(d));
+  }, [splitPending, state.activeSession, mutate]);
 
   // iOS/Safari only allow audio after a user gesture.
   useEffect(() => {
