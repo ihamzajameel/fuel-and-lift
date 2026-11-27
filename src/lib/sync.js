@@ -56,6 +56,30 @@ export function startPairing(url) {
   return botApi(url, '/api/pair', { method: 'POST', auth: false, body: { code, key: deviceKey() } });
 }
 
+// ---- Phone notifications (Web Push via the bot) ----
+const b64ToBytes = (b64) => {
+  const s = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+};
+export async function enablePush(url) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error("This browser doesn't support phone notifications.");
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('Notifications are blocked for Fuel & Lift. Allow them in your phone settings, then try again.');
+  const reg = await navigator.serviceWorker.ready;
+  const { vapidPublicKey } = await botInfo(url);
+  if (!vapidPublicKey) throw new Error('The bot server is not ready for notifications yet.');
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(vapidPublicKey) });
+  await botApi(url, '/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+}
+export async function disablePush(url) {
+  const reg = await navigator.serviceWorker?.getRegistration();
+  const sub = await reg?.pushManager?.getSubscription();
+  if (!sub) return;
+  await botApi(url, '/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+  await sub.unsubscribe().catch(() => {});
+}
+
 /** What the bot needs: your plan and today's progress. No history, no body data. */
 export function buildSnapshot(state, today) {
   const day = state.days[today] || {};
@@ -70,6 +94,7 @@ export function buildSnapshot(state, today) {
     goalType: state.profile.goalType,
     appUrl: location.origin + location.pathname,
     tgReminders: tg.reminders !== false,
+    pushReminders: !!state.meta.push?.enabled,
     lastEventId: tg.lastEventId || 0,
     targets: state.targets,
     reminders: state.reminders.map(({ id, title, body, kind, time, start, end, every, enabled, days, icon, dynamic, actions }) => ({

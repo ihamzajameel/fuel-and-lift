@@ -23,6 +23,7 @@ import {
   waterPace,
 } from './logic.js';
 import { estimateMeal, visionEnabled } from './vision.js';
+import webpush from 'web-push';
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const PORT = Number(process.env.PORT) || 8787;
@@ -122,6 +123,56 @@ function undoEvent(ref) {
 }
 const isUndone = (id) => db().events.some((e) => e.type === 'undo' && e.data.ref === id);
 
+// ---------------------------------------------------------------- web push (phone notifications)
+let vapidReady = false;
+function vapidKeys() {
+  const d = db();
+  if (!d.vapid) {
+    d.vapid = webpush.generateVAPIDKeys();
+    flush();
+    log('generated VAPID keys');
+  }
+  if (!vapidReady) {
+    webpush.setVapidDetails('https://fit.fineradesk.com', d.vapid.publicKey, d.vapid.privateKey);
+    vapidReady = true;
+  }
+  return d.vapid;
+}
+const plain = (html) =>
+  String(html)
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+
+/** Send a notification to every subscribed phone; drops subscriptions the browser has revoked. */
+async function pushAll(payload) {
+  vapidKeys();
+  const d = db();
+  const keep = [];
+  let sent = 0;
+  await Promise.all(
+    (d.pushSubs || []).map(async (sub) => {
+      try {
+        await webpush.sendNotification(sub, JSON.stringify(payload), { TTL: 3600, urgency: 'high' });
+        keep.push(sub);
+        sent++;
+      } catch (e) {
+        if (e.statusCode === 404 || e.statusCode === 410) log('push subscription expired, removed');
+        else {
+          keep.push(sub);
+          log('push error', e.statusCode || e.message);
+        }
+      }
+    })
+  );
+  d.pushSubs = keep;
+  save();
+  return sent;
+}
+const pushOn = () => !!(db().state?.pushReminders && (db().pushSubs || []).length);
+const telegramOn = () => !!(TOKEN && db().pair && db().state?.tgReminders !== false);
+
 // ---------------------------------------------------------------- reminders
 async function sendReminder(rem, okey, snoozed = false) {
   const s = st();
@@ -163,16 +214,24 @@ async function sendReminder(rem, okey, snoozed = false) {
   ].filter((b) => fits(b.callback_data));
   if (bottom.length) rows.push(bottom);
   const html = `${EMOJI[rem.icon] || '🔔'} <b>${esc(rem.title)}</b>${snoozed ? ' <i>(snoozed)</i>' : ''}\n${body}`;
-  const msg = await send(html, kb(rows));
-  db().sent[snoozed ? `${okey}#${now}` : okey] = { at: now, msgId: msg.message_id, html, okey };
+  let msgId = null;
+  if (telegramOn()) msgId = (await send(html, kb(rows))).message_id;
+  if (pushOn())
+    await pushAll({
+      title: `${EMOJI[rem.icon] || '🔔'} ${rem.title}`,
+      body: plain(body).replace(/\n{2,}/g, '\n').trim(),
+      url: `${appUrl()}?r=${encodeURIComponent(okey)}`,
+      key: okey,
+    }).catch((e) => log('push failed', e.message));
+  db().sent[snoozed ? `${okey}#${now}` : okey] = { at: now, msgId, html, okey };
   save();
-  log('sent reminder', okey);
+  log('sent reminder', okey, telegramOn() ? '+telegram' : '', pushOn() ? '+push' : '');
 }
 
 let ticking = false;
 async function tick() {
   const d = db();
-  if (ticking || !TOKEN || !d.pair || !d.state || d.state.tgReminders === false) return;
+  if (ticking || !d.state || (!telegramOn() && !pushOn())) return;
   ticking = true;
   try {
     const now = Date.now();
@@ -566,7 +625,8 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (route === 'GET /' || route === 'GET /health') return reply(req, res, 200, { ok: true, service: 'fuel-lift-bot', bot: db().bot?.username || null });
-    if (route === 'GET /api/info') return reply(req, res, 200, { bot: db().bot?.username || null, configured: !!TOKEN, paired: !!db().pair, vision: visionEnabled() });
+    if (route === 'GET /api/info')
+      return reply(req, res, 200, { bot: db().bot?.username || null, configured: !!TOKEN, paired: !!db().pair, vision: visionEnabled(), vapidPublicKey: vapidKeys().publicKey });
 
     if (route === 'POST /api/pair') {
       const { code, key } = await readJson(req, 4096);
@@ -606,9 +666,25 @@ const server = http.createServer(async (req, res) => {
       log('app photo estimate', est.total.kcal, 'kcal', JSON.stringify(est.usage));
       return reply(req, res, 200, { estimate: est });
     }
-    if (route === 'POST /api/test') {
-      await send('👋 <b>Fuel & Lift test</b>\nReminders and replies are working. Try replying <code>250</code> or <code>status</code>.', kb(quickRows()));
+    if (route === 'POST /api/push/subscribe') {
+      const { subscription } = await readJson(req, 8192);
+      if (!subscription || !/^https:\/\//.test(subscription.endpoint || '') || !subscription.keys?.p256dh || !subscription.keys?.auth)
+        return reply(req, res, 400, { error: 'bad_subscription' });
+      const d = db();
+      d.pushSubs = [...(d.pushSubs || []).filter((x) => x.endpoint !== subscription.endpoint), { endpoint: subscription.endpoint, keys: subscription.keys }].slice(-5);
+      save();
+      return reply(req, res, 200, { ok: true, devices: d.pushSubs.length });
+    }
+    if (route === 'POST /api/push/unsubscribe') {
+      const { endpoint } = await readJson(req, 4096);
+      db().pushSubs = (db().pushSubs || []).filter((x) => x.endpoint !== endpoint);
+      save();
       return reply(req, res, 200, { ok: true });
+    }
+    if (route === 'POST /api/test') {
+      if (TOKEN && db().pair) await send('👋 <b>Fuel & Lift test</b>\nReminders and replies are working. Try replying <code>250</code> or <code>status</code>.', kb(quickRows()));
+      const pushed = (db().pushSubs || []).length ? await pushAll({ title: '👋 Fuel & Lift test', body: 'Phone notifications are working.', url: appUrl(), key: 'test' }) : 0;
+      return reply(req, res, 200, { ok: true, pushed });
     }
     if (route === 'POST /api/unpair') {
       await send('🔌 Disconnected from Fuel & Lift.').catch(() => {});

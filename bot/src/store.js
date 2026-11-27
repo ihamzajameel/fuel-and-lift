@@ -15,6 +15,8 @@ const empty = () => ({
   snoozes: [], // { remId, okey, at }
   tgOffset: 0,
   photos: {}, // pending photo estimates: id -> { fileId, hint, est, at, msgId }
+  pushSubs: [], // Web Push subscriptions from the installed app
+  vapid: null, // { publicKey, privateKey } generated on first start
   bot: null, // { username }
 });
 

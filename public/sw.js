@@ -102,6 +102,9 @@ self.addEventListener('push', (event) => {
       body: payload.body || '',
       icon: abs('icons/icon-192.png'),
       badge: abs('icons/badge-96.png'),
+      tag: payload.key || undefined,
+      renotify: !!payload.key,
+      vibrate: [200, 100, 200],
       data: { url: payload.url || './', key: payload.key },
     })
   );

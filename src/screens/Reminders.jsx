@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useEffect } from 'react';
 import { Bot, BellRing, CalendarPlus, ChevronLeft, ExternalLink, Info, Plus, RefreshCw, RotateCcw, Send, Trash2, Unlink } from 'lucide-react';
-import { DEFAULT_BOT_URL, applyEvents, botApi, botInfo, botStatus, startPairing } from '../lib/sync';
+import { DEFAULT_BOT_URL, applyEvents, botApi, botInfo, botStatus, disablePush, enablePush, startPairing } from '../lib/sync';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Field, NumInput, ScreenHeader, Segmented, Sheet, TextInput, Toggle, cx } from '../components/ui';
@@ -378,10 +378,24 @@ function TelegramCard() {
 
   const test = async () => {
     try {
-      await botApi(url, '/api/test', { method: 'POST' });
-      toast('Test message sent to Telegram');
+      const r = await botApi(url, '/api/test', { method: 'POST' });
+      toast(r.pushed ? 'Test sent to Telegram and this phone' : 'Test message sent to Telegram');
     } catch (e) {
       toast(`Couldn't send: ${e.message}`);
+    }
+  };
+
+  const setPhone = async (on) => {
+    setBusy(true);
+    try {
+      if (on) await enablePush(url);
+      else await disablePush(url);
+      mutate((d) => (d.meta.push = { ...(d.meta.push || {}), enabled: on }));
+      toast(on ? 'Phone notifications on' : 'Phone notifications off');
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -407,10 +421,17 @@ function TelegramCard() {
           </p>
           <label className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-3">
             <span>
-              <span className="block text-sm font-medium">Send reminders to Telegram</span>
-              <span className="block text-xs text-muted">Works even when this app is closed. The app's own pop-ups stay quiet to avoid double pings.</span>
+              <span className="block text-sm font-medium">Telegram reminders</span>
+              <span className="block text-xs text-muted">Messages with tap-to-log buttons, and you can reply to log. Works even when this app is closed.</span>
             </span>
             <Toggle checked={tg.reminders !== false} onChange={(v) => mutate((d) => (d.meta.tg = { ...d.meta.tg, reminders: v }))} label="Reminders via Telegram" />
+          </label>
+          <label className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-3">
+            <span>
+              <span className="block text-sm font-medium">Phone notifications</span>
+              <span className="block text-xs text-muted">Fuel & Lift's own notifications, even when the app is closed. Tap one to open the reminder with a Log button.</span>
+            </span>
+            <Toggle checked={!!state.meta.push?.enabled} onChange={setPhone} label="Phone notifications" />
           </label>
           <p className="mt-3 text-xs leading-relaxed text-muted">
             Reply in Telegram to log: <code className="text-fg">500</code> · <code className="text-fg">shake</code> · <code className="text-fg">creatine</code> ·{' '}

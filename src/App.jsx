@@ -7,7 +7,7 @@ import Food from './screens/Food';
 import Train from './screens/Train';
 import Progress from './screens/Progress';
 import More from './screens/More';
-import { dueBetween, isOccurrenceDone, isOccurrenceMissed, reminderContent } from './lib/reminders';
+import { dueBetween, isOccurrenceDone, isOccurrenceMissed, occurrenceAt, reminderContent } from './lib/reminders';
 import { buzz, chime, showSystemNotification, unlockAudio } from './lib/notify';
 import * as ops from './lib/ops';
 import { dayKey, uid } from './lib/time';
@@ -97,7 +97,7 @@ function Shell() {
     (occs, { forceSystem = false } = {}) => {
       const s = latest.current;
       // Telegram handles reminders when connected; the app stays quiet to avoid double pings.
-      const viaTelegram = s.meta.tg?.paired && s.meta.tg?.reminders !== false;
+      const viaTelegram = (s.meta.tg?.paired && s.meta.tg?.reminders !== false) || (s.meta.tg?.paired && s.meta.push?.enabled);
       const items = [];
       for (const o of occs) {
         if (viaTelegram && !o.test) continue;
@@ -150,19 +150,46 @@ function Shell() {
     };
   }, [fire, latest]);
 
+  // Show the banner (with its Log button) for a reminder occurrence, e.g. after tapping a phone notification.
+  const openBanner = useCallback(
+    (okey) => {
+      const [id, day, time] = String(okey || '').split('@');
+      const s = latest.current;
+      const rem = s.reminders.find((r) => r.id === id);
+      if (!rem || !day || !time) return;
+      const occ = { id, okey, dayKey: day, time, at: occurrenceAt(day, time, s.settings.dayStartHour) };
+      if (isOccurrenceDone(rem, occ, s) || isOccurrenceMissed(occ, s)) return;
+      const c = reminderContent(rem, s);
+      setBanners((b) => [...b.filter((x) => x.okey !== okey), { ...occ, title: c.title, body: c.body, ask: c.ask, missed: Date.now() - occ.at > 3 * 60e3 }]);
+    },
+    [latest]
+  );
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    const r = q.get('r');
+    if (r) {
+      openBanner(r);
+      q.delete('r');
+      history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}`);
+    }
+  }, [openBanner]);
+
   // Tapping a system notification focuses the app; make sure its banner is on top.
   useEffect(() => {
     const onMsg = (e) => {
       if (e.data?.type !== 'notification-click' || !e.data.key) return;
+      let found = false;
       setBanners((b) => {
         const i = b.findIndex((x) => x.okey === e.data.key);
         if (i < 0) return b;
+        found = true;
         return [...b.slice(0, i), ...b.slice(i + 1), b[i]];
       });
+      setTimeout(() => !found && openBanner(e.data.key), 0);
     };
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
-  }, []);
+  }, [openBanner]);
 
   useBotSync({ state, mutate, today, latest, toast });
 
