@@ -2,7 +2,7 @@
 // and exposes a small API the PWA syncs with (push snapshot, pull events).
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { addEvent, dataFile, flush, getDb, load, prune, save } from './store.js';
+import { addEvent, dataFile, flush, getDb, getSync, load, prune, putSync, save } from './store.js';
 import {
   EMOJI,
   HELP,
@@ -612,6 +612,7 @@ function authed(req) {
   const d = db();
   const eq = (a, b) => a && b && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
   if (eq(h, d.pair?.keyHash)) return 'paired';
+  if ((d.devices || []).some((x) => eq(h, x.keyHash))) return 'paired';
   if (eq(h, d.pending?.keyHash)) return 'pending';
   return null;
 }
@@ -636,6 +637,25 @@ const server = http.createServer(async (req, res) => {
       db().pending = { code, keyHash: sha(key), exp: Date.now() + 15 * 60e3 };
       save();
       return reply(req, res, 200, { link: `https://t.me/${db().bot.username}?start=${code}`, bot: db().bot.username });
+    }
+
+    if (route === 'POST /api/devices/claim') {
+      const { code, key, name } = await readJson(req, 4096);
+      const d = db();
+      const l = d.link;
+      if (!l || l.exp < Date.now()) return reply(req, res, 410, { error: 'code_expired' });
+      if (!/^[a-f0-9]{64}$/.test(key || '')) return reply(req, res, 400, { error: 'bad_request' });
+      if (String(code || '').trim() !== l.code) {
+        l.attempts = (l.attempts || 0) + 1;
+        if (l.attempts >= 8) d.link = null; // too many wrong tries: the code dies
+        save();
+        return reply(req, res, 403, { error: 'wrong_code' });
+      }
+      d.devices = [...(d.devices || []).filter((x) => x.keyHash !== sha(key)), { keyHash: sha(key), name: String(name || 'Device').slice(0, 40), at: Date.now() }].slice(-6);
+      d.link = null;
+      flush();
+      log('linked device', name);
+      return reply(req, res, 200, { ok: true, bot: d.bot?.username || null });
     }
 
     const who = authed(req);
@@ -665,6 +685,40 @@ const server = http.createServer(async (req, res) => {
       const est = await estimateMeal({ base64: image, mediaType, hint: String(hint || '').slice(0, 300), presets: db().state?.presets });
       log('app photo estimate', est.total.kcal, 'kcal', JSON.stringify(est.usage));
       return reply(req, res, 200, { estimate: est });
+    }
+    if (route === 'POST /api/devices/link') {
+      const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
+      db().link = { code, exp: Date.now() + 10 * 60e3, attempts: 0 };
+      save();
+      return reply(req, res, 200, { code, exp: db().link.exp });
+    }
+    if (route === 'GET /api/devices') {
+      const mine = sha((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+      const d = db();
+      const list = [
+        { id: 'primary', name: 'Phone (first linked)', at: d.pair?.at || null, current: mine === d.pair?.keyHash },
+        ...(d.devices || []).map((x) => ({ id: x.keyHash.slice(0, 12), name: x.name, at: x.at, current: mine === x.keyHash })),
+      ];
+      return reply(req, res, 200, { devices: list });
+    }
+    if (route === 'POST /api/devices/remove') {
+      const { id } = await readJson(req, 1024);
+      db().devices = (db().devices || []).filter((x) => x.keyHash.slice(0, 12) !== id);
+      save();
+      return reply(req, res, 200, { ok: true });
+    }
+    if (route === 'GET /api/sync') {
+      const s = getSync();
+      const since = Number(url.searchParams.get('since'));
+      if (Number.isFinite(since) && since === s.rev) return reply(req, res, 200, { rev: s.rev, unchanged: true });
+      return reply(req, res, 200, { rev: s.rev, doc: s.doc, at: s.at });
+    }
+    if (route === 'PUT /api/sync') {
+      const { baseRev, doc } = await readJson(req, 10 * 1024 * 1024);
+      if (!doc || typeof doc !== 'object' || !doc.days || !doc.program) return reply(req, res, 400, { error: 'bad_doc' });
+      const cur = getSync();
+      if (Number(baseRev) !== cur.rev) return reply(req, res, 409, { error: 'stale', rev: cur.rev });
+      return reply(req, res, 200, { rev: putSync(doc) });
     }
     if (route === 'POST /api/push/subscribe') {
       const { subscription } = await readJson(req, 8192);

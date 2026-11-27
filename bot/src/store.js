@@ -16,6 +16,8 @@ const empty = () => ({
   tgOffset: 0,
   photos: {}, // pending photo estimates: id -> { fileId, hint, est, at, msgId }
   pushSubs: [], // Web Push subscriptions from the installed app
+  devices: [], // extra linked devices: { keyHash, name, at }
+  link: null, // pending device link code: { code, exp, attempts }
   vapid: null, // { publicKey, privateKey } generated on first start
   bot: null, // { username }
 });
@@ -64,3 +66,26 @@ export function prune(now = Date.now()) {
 }
 
 export const dataFile = FILE;
+
+// ---- Full app state for cross-device sync, kept in its own file (it's much larger) ----
+const SYNC_FILE = path.join(DIR, 'sync.json');
+let syncDoc = null;
+export function getSync() {
+  if (!syncDoc) {
+    try {
+      syncDoc = JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8'));
+    } catch {
+      syncDoc = { rev: 0, doc: null, at: 0 };
+    }
+  }
+  return syncDoc;
+}
+export function putSync(doc) {
+  const cur = getSync();
+  syncDoc = { rev: cur.rev + 1, doc, at: Date.now() };
+  fs.mkdirSync(DIR, { recursive: true });
+  const tmp = `${SYNC_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(syncDoc));
+  fs.renameSync(tmp, SYNC_FILE);
+  return syncDoc.rev;
+}

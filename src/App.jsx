@@ -12,7 +12,7 @@ import { buzz, chime, showSystemNotification, unlockAudio } from './lib/notify';
 import * as ops from './lib/ops';
 import { dayKey, uid } from './lib/time';
 import { ensureWeeklySplit } from './lib/defaults';
-import { useBotSync } from './lib/sync';
+import { useBotSync, useCloudSync } from './lib/sync';
 
 const LAST_CHECK = 'fuel-lift:lastCheck';
 const FIRED = 'fuel-lift:fired';
@@ -35,7 +35,7 @@ function initialTab() {
 }
 
 function Shell() {
-  const { state, mutate, latest, today } = useStore();
+  const { state, mutate, latest, today, apply } = useStore();
   const [tab, setTab] = useState(initialTab);
   const [moreView, setMoreView] = useState('main');
   const [toastMsg, setToastMsg] = useState(null);
@@ -192,6 +192,7 @@ function Shell() {
   }, [openBanner]);
 
   useBotSync({ state, mutate, today, latest, toast });
+  useCloudSync({ state, latest, apply });
 
   const dismissBanner = useCallback((okey) => setBanners((b) => b.filter((x) => x.okey !== okey)), []);
 

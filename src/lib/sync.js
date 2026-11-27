@@ -6,6 +6,7 @@ import * as ops from './ops';
 import { dayTotals } from './nutrition';
 import { nextDayIndex, plannedSession } from './workout';
 import { cloneProgram } from './defaults';
+import { mergeState, sameContent, stampChanges, summarize } from './merge';
 
 export const DEFAULT_BOT_URL = import.meta.env.VITE_BOT_URL || 'https://bot-production-7ba0497f.up.railway.app';
 
@@ -296,4 +297,118 @@ export function useBotSync({ state, mutate, today, latest, toast }) {
     }, 1500);
     return () => clearTimeout(t);
   }, [snap, active, url]);
+}
+
+// ---------------------------------------------------------------- cross-device sync
+const BASE_KEY = 'fuel-lift:syncBase'; // { rev, sum }: what the server holds, as hashes + ids
+const STATUS_KEY = 'fuel-lift:syncStatus'; // { at, error }
+const readLS = (k) => {
+  try {
+    return JSON.parse(localStorage.getItem(k));
+  } catch {
+    return null;
+  }
+};
+const writeLS = (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {
+    /* storage full or blocked */
+  }
+};
+export const syncStatus = () => readLS(STATUS_KEY) || {};
+const setStatus = (v) => {
+  writeLS(STATUS_KEY, v);
+  window.dispatchEvent(new Event('fuel-lift-sync'));
+};
+
+/**
+ * One sync round: stamp local changes, fetch the server copy if it moved, merge, upload if needed,
+ * then apply the result locally without losing edits made while the network call was running.
+ */
+export async function syncOnce({ url, latest, apply }) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const startState = latest.current;
+    const base = readLS(BASE_KEY);
+    const local = stampChanges(startState, base?.sum, Date.now());
+    const remote = await botApi(url, `/api/sync?since=${base ? base.rev : -1}`);
+    let next = local;
+    let rev = base?.rev ?? 0;
+    let remoteDoc = null;
+    if (!remote.unchanged) {
+      rev = remote.rev;
+      remoteDoc = remote.doc;
+      if (remoteDoc) next = mergeState(local, remoteDoc);
+    }
+    const localChanged = local !== startState || !base;
+    const needPush = remote.unchanged ? localChanged : !remoteDoc || !sameContent(next, remoteDoc);
+    if (needPush) {
+      try {
+        const r = await botApi(url, '/api/sync', { method: 'PUT', body: { baseRev: rev, doc: next } });
+        rev = r.rev;
+      } catch (e) {
+        if (e.status === 409) continue; // someone else synced first: merge again
+        throw e;
+      }
+    }
+    writeLS(BASE_KEY, { rev, sum: summarize(next) });
+    if (next !== startState) {
+      const startSum = summarize(startState);
+      apply((cur) => (cur === startState ? next : mergeState(stampChanges(cur, startSum, Date.now()), next)));
+    }
+    setStatus({ at: Date.now(), error: null, rev });
+    return { pushed: needPush, pulled: !!remoteDoc && !remote.unchanged };
+  }
+  throw new Error('Sync kept conflicting; it will retry shortly.');
+}
+
+/** A brand-new device takes the synced copy as-is (keeping only its own device settings). */
+export async function adoptRemote({ url, latest, replace }) {
+  const remote = await botApi(url, '/api/sync?since=-1');
+  if (!remote.doc) throw new Error('Nothing to copy yet. Open Fuel & Lift on your phone first so it uploads your data.');
+  const local = latest.current;
+  const next = { ...remote.doc, meta: { ...remote.doc.meta, push: local.meta?.push, tg: { ...(remote.doc.meta?.tg || {}), url, paired: true } } };
+  writeLS(BASE_KEY, { rev: remote.rev, sum: summarize(next) });
+  replace(next);
+  setStatus({ at: Date.now(), error: null, rev: remote.rev });
+}
+
+export function useCloudSync({ state, latest, apply }) {
+  const tg = state.meta.tg || {};
+  const active = !!(tg.url && tg.paired && state.meta.sync?.enabled !== false);
+  const url = tg.url;
+  const busy = useRef(false);
+  const run = useMemo(
+    () => async () => {
+      if (!active || busy.current || document.visibilityState !== 'visible') return;
+      busy.current = true;
+      try {
+        await syncOnce({ url, latest, apply });
+      } catch (e) {
+        setStatus({ ...syncStatus(), error: e.message });
+      } finally {
+        busy.current = false;
+      }
+    },
+    [active, url, latest, apply]
+  );
+  useEffect(() => {
+    if (!active) return;
+    run();
+    const id = setInterval(run, 30000);
+    const onVis = () => document.visibilityState === 'visible' && run();
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('online', run);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('online', run);
+    };
+  }, [active, run]);
+  // Upload shortly after local edits.
+  useEffect(() => {
+    if (!active) return;
+    const t = setTimeout(run, 2500);
+    return () => clearTimeout(t);
+  }, [state, active, run]);
 }

@@ -21,6 +21,8 @@ import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Field, IconButton, NumInput, ScreenHeader, Segmented, TextInput, Toggle, cx, fmtNum } from '../components/ui';
 import Reminders from './Reminders';
+import { DEFAULT_BOT_URL, adoptRemote, botApi, deviceKey, syncOnce, syncStatus } from '../lib/sync';
+import { Laptop, Link2, RefreshCw, Smartphone as PhoneIcon } from 'lucide-react';
 import { energyEstimate, fromLen, kcalFromMacros, lenUnit, toLen } from '../lib/nutrition';
 import { makeBackup, parseBackup } from '../lib/storage';
 import { makeDefaultState } from '../lib/defaults';
@@ -164,6 +166,8 @@ function SettingsMain() {
             </div>
           </div>
         )}
+
+        <DevicesCard />
 
         <Card title="Profile" icon={User}>
           <div className="grid grid-cols-3 gap-2">
@@ -407,5 +411,155 @@ function SettingsMain() {
         <p className="pb-2 text-center text-xs text-faint">Fuel & Lift · v1.0 · data stays on your device</p>
       </div>
     </>
+  );
+}
+
+const deviceName = () => {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua)) return 'iPad';
+  if (/Android/.test(ua)) return 'Android phone';
+  if (/Mac/.test(ua)) return 'Mac';
+  if (/Windows/.test(ua)) return 'Windows PC';
+  return 'Browser';
+};
+
+/** Link devices with a 6-digit code and keep them in sync through the bot server. */
+function DevicesCard() {
+  const { state, latest, apply, replace } = useStore();
+  const { toast } = useApp();
+  const tg = state.meta.tg || {};
+  const linked = !!(tg.paired && tg.url);
+  const [status, setStatus] = useState(syncStatus());
+  const [code, setCode] = useState(null); // { code, exp }
+  const [devices, setDevices] = useState([]);
+  const [input, setInput] = useState('');
+  const [name, setName] = useState(deviceName());
+  const [busy, setBusy] = useState(false);
+  const [, force] = useState(0);
+
+  useEffect(() => {
+    const on = () => setStatus(syncStatus());
+    window.addEventListener('fuel-lift-sync', on);
+    const id = setInterval(() => force((x) => x + 1), 15000);
+    return () => {
+      window.removeEventListener('fuel-lift-sync', on);
+      clearInterval(id);
+    };
+  }, []);
+  useEffect(() => {
+    if (!linked) return;
+    botApi(tg.url, '/api/devices')
+      .then((r) => setDevices(r.devices))
+      .catch(() => {});
+  }, [linked, tg.url, code]);
+
+  const ago = (t) => {
+    if (!t) return 'never';
+    const m = Math.round((Date.now() - t) / 60000);
+    return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+  };
+
+  const syncNow = async () => {
+    setBusy(true);
+    try {
+      await syncOnce({ url: tg.url, latest, apply });
+      toast('Synced');
+    } catch (e) {
+      toast(`Sync failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const makeCode = async () => {
+    setBusy(true);
+    try {
+      setCode(await botApi(tg.url, '/api/devices/link', { method: 'POST' }));
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeDevice = async (id) => {
+    if (!confirm('Unlink this device? It keeps its copy but stops syncing.')) return;
+    await botApi(tg.url, '/api/devices/remove', { method: 'POST', body: { id } }).catch(() => {});
+    setDevices((d) => d.filter((x) => x.id !== id));
+  };
+  const claim = async () => {
+    const hasData = Object.keys(state.days).length > 0;
+    if (hasData && !confirm("This device's own log will be replaced by your phone's data. Continue?")) return;
+    setBusy(true);
+    try {
+      const url = state.meta.tg?.url || DEFAULT_BOT_URL;
+      await botApi(url, '/api/devices/claim', { method: 'POST', auth: false, body: { code: input.replace(/\D/g, ''), key: deviceKey(), name } });
+      await adoptRemote({ url, latest, replace });
+      toast('Linked. This device now shows your phone\'s data.');
+    } catch (e) {
+      toast(e.code === 'wrong_code' ? 'Wrong code. Check the 6 digits on your phone.' : e.code === 'code_expired' ? 'That code expired. Make a new one on your phone.' : e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="Devices & sync" icon={Link2}>
+      {linked ? (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm">
+              <span className={status.error ? 'text-warn' : 'text-good'}>{status.error ? 'Sync problem' : 'Sync is on'}</span>
+              <span className="text-muted"> · last synced {ago(status.at)}</span>
+            </p>
+            <Button size="sm" icon={RefreshCw} onClick={syncNow} disabled={busy}>
+              Sync
+            </Button>
+          </div>
+          {status.error && <p className="mt-1 text-xs text-warn">{status.error}</p>}
+          {code ? (
+            <div className="mt-3 rounded-xl border border-accent/40 bg-accent/10 p-3 text-center">
+              <p className="text-xs text-muted">On the other device open fit.fineradesk.com → More → Devices & sync, and enter:</p>
+              <p className="tnum mt-1 text-3xl font-bold tracking-[0.3em]">{code.code}</p>
+              <p className="text-xs text-faint">Valid for 10 minutes</p>
+            </div>
+          ) : (
+            <Button className="mt-3 w-full" icon={Laptop} onClick={makeCode} disabled={busy}>
+              Link another device
+            </Button>
+          )}
+          {devices.length > 0 && (
+            <ul className="mt-3 divide-y divide-line/60 text-sm">
+              {devices.map((d) => (
+                <li key={d.id} className="flex items-center gap-2 py-2">
+                  {d.id === 'primary' ? <PhoneIcon size={16} className="text-muted" /> : <Laptop size={16} className="text-muted" />}
+                  <span className="flex-1">
+                    {d.name}
+                    {d.current && <span className="text-faint"> · this device</span>}
+                  </span>
+                  {d.id !== 'primary' && !d.current && (
+                    <button type="button" onClick={() => removeDevice(d.id)} className="text-xs text-danger">
+                      Unlink
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-faint">Your full log is kept on your bot server so every linked device shows the same data. Changes merge entry by entry.</p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted">Already using Fuel & Lift on your phone? Link this device to see and edit the same data.</p>
+          <p className="mt-1 text-xs text-faint">On your phone: More → Devices & sync → Link another device. Then enter the 6-digit code here.</p>
+          <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+            <TextInput value={input} onChange={(e) => setInput(e.target.value)} inputMode="numeric" placeholder="6-digit code" maxLength={7} className="tnum text-lg tracking-widest" />
+            <Button variant="primary" onClick={claim} disabled={busy || input.replace(/\D/g, '').length !== 6}>
+              Link
+            </Button>
+          </div>
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Device name" className="mt-2 !h-10 text-sm" aria-label="Device name" />
+        </>
+      )}
+    </Card>
   );
 }

@@ -47,6 +47,8 @@ export function StoreProvider({ children }) {
   }, []);
 
   const replace = useCallback((next) => setState(next), []);
+  /** Functional update for whole-state changes (used by cross-device sync). */
+  const apply = useCallback((fn) => setState((s) => fn(s)), []);
 
   // A clock that ticks every 30 s so "today", pacing and timelines stay fresh.
   const [now, setNow] = useState(() => Date.now());
@@ -63,8 +65,8 @@ export function StoreProvider({ children }) {
   const today = dayKey(new Date(now), state.settings.dayStartHour);
 
   const value = useMemo(
-    () => ({ state, mutate, replace, now, today, latest }),
-    [state, mutate, replace, now, today]
+    () => ({ state, mutate, replace, apply, now, today, latest }),
+    [state, mutate, replace, apply, now, today]
   );
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }
