@@ -1,0 +1,455 @@
+import { useMemo, useState } from 'react';
+import { Activity, CircleCheck, Dumbbell, Flame, Info, Moon, Ruler, Scale, Sparkles, Trash2, TriangleAlert, Trophy, Footprints } from 'lucide-react';
+import { useStore } from '../lib/store';
+import { useApp } from '../lib/app-context';
+import { Button, Card, Chip, Empty, Field, IconButton, NumInput, ScreenHeader, Segmented, cx, fmtNum } from '../components/ui';
+import { ColumnChart, LineChart } from '../components/charts';
+import { bestStreak, currentStreak, lastNKeys, nutritionSummary, takenInLast, trend, weeklyBody } from '../lib/stats';
+import { dailyScore, insights } from '../lib/coach';
+import { exerciseNamesWithHistory, fmtSet, strengthHistory } from '../lib/workout';
+import { dayTotals } from '../lib/nutrition';
+import { addDays, fmtDay, fmtShortDate, parseYmd } from '../lib/time';
+import * as ops from '../lib/ops';
+
+export default function Progress() {
+  const [tab, setTab] = useState(() => sessionStorage.getItem('fuel-lift:ptab') || 'coach');
+  const pick = (t) => {
+    setTab(t);
+    sessionStorage.setItem('fuel-lift:ptab', t);
+  };
+  return (
+    <>
+      <ScreenHeader title="Progress" subtitle="Trends, coaching & consistency" />
+      <div className="sticky top-[calc(env(safe-area-inset-top)+57px)] z-10 bg-bg/90 px-3 pt-3 pb-2 backdrop-blur-md">
+        <Segmented
+          value={tab}
+          onChange={pick}
+          options={[
+            { value: 'coach', label: 'Coach' },
+            { value: 'body', label: 'Body' },
+            { value: 'strength', label: 'Strength' },
+            { value: 'habits', label: 'Habits' },
+          ]}
+        />
+      </div>
+      <div className="space-y-3 px-3 pt-1">
+        {tab === 'coach' && <CoachTab />}
+        {tab === 'body' && <BodyTab />}
+        {tab === 'strength' && <StrengthTab />}
+        {tab === 'habits' && <HabitsTab />}
+      </div>
+    </>
+  );
+}
+
+const TONE_ICON = { good: CircleCheck, warn: TriangleAlert, info: Info };
+const TONE_CLS = { good: 'text-good', warn: 'text-warn', info: 'text-water' };
+
+// ---------------------------------------------------------------- Coach
+function CoachTab() {
+  const { state, mutate, today } = useStore();
+  const { toast } = useApp();
+  const list = useMemo(() => insights(state, today), [state, today]);
+  const sum = useMemo(() => nutritionSummary(state, today, 7), [state, today]);
+  const t = state.targets;
+  const days14 = lastNKeys(today, 14);
+
+  const apply = (a) => {
+    const kcal = Math.round(t.kcal + a.delta);
+    if (!confirm(`Change your calorie target from ${fmtNum(t.kcal)} to ${fmtNum(kcal)} kcal? Carbs adjust by ${a.delta > 0 ? '+' : ''}${Math.round(a.delta / 4)} g; protein stays at ${t.p} g.`)) return;
+    mutate((d) => ops.applyKcalDelta(d, a.delta));
+    toast(`Calorie target is now ${fmtNum(kcal)} kcal`);
+  };
+
+  return (
+    <>
+      <ScoreCard />
+      {list.map((i) => {
+        const Icon = TONE_ICON[i.tone];
+        return (
+          <Card key={i.id}>
+            <div className="flex gap-3">
+              <Icon size={20} className={cx('mt-0.5 shrink-0', TONE_CLS[i.tone])} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">{i.title}</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted">{i.text}</p>
+                {i.action && (
+                  <Button size="sm" variant="primary" className="mt-3" onClick={() => apply(i.action)}>
+                    Apply {i.action.label}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
+        );
+      })}
+
+      <Card title="Last 7 days" icon={Activity}>
+        {sum.loggedDays === 0 ? (
+          <p className="text-sm text-muted">Log a few days of food and water to see averages.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Stat label="Avg calories" value={fmtNum(sum.avgKcal)} sub={`target ${fmtNum(t.kcal)}`} />
+            <Stat label="Avg protein" value={`${sum.avgP} g`} sub={`hit ${sum.proteinHits}/${sum.loggedDays} days`} />
+            <Stat label="Avg water" value={`${(sum.avgWater / 1000).toFixed(1)} L`} sub={`hit ${sum.waterHits}/${sum.loggedDays} days`} />
+            <Stat label="Calories in range" value={`${sum.kcalInRange}/${sum.loggedDays}`} sub="within ±10%" />
+          </div>
+        )}
+      </Card>
+
+      <Card title="Calories · 14 days">
+        <ColumnChart
+          ariaLabel="Daily calories for the last 14 days"
+          bars={days14.map((k) => ({ key: k, label: String(parseYmd(k).getDate()), sub: fmtDay(k, today), value: dayTotals(state.days[k]).kcal }))}
+          target={t.kcal}
+          targetLabel={`Target ${fmtNum(t.kcal)}`}
+          unit="kcal"
+          tone="var(--accent)"
+        />
+      </Card>
+      <Card title="Protein · 14 days">
+        <ColumnChart
+          ariaLabel="Daily protein for the last 14 days"
+          bars={days14.map((k) => ({ key: k, label: String(parseYmd(k).getDate()), sub: fmtDay(k, today), value: dayTotals(state.days[k]).p }))}
+          target={t.p}
+          targetLabel={`Target ${t.p} g`}
+          unit="g"
+          tone="var(--protein)"
+        />
+      </Card>
+    </>
+  );
+}
+
+function ScoreCard() {
+  const { state, today } = useStore();
+  const s = dailyScore(state, today);
+  const y = dailyScore(state, addDays(today, -1));
+  return (
+    <Card title="Today's score" icon={Sparkles} right={y.logged && <span className="tnum text-sm text-muted">Yesterday {y.score}</span>}>
+      <div className="flex items-center gap-4">
+        <div className="text-center">
+          <p className="tnum text-5xl leading-none font-bold">{s.score}</p>
+          <p className="mt-1 text-xs text-muted">/ 100</p>
+        </div>
+        <ul className="grid min-w-0 flex-1 grid-cols-1 gap-1 text-sm">
+          {s.items.map((i) => (
+            <li key={i.id} className={cx('flex items-center gap-2', i.ok ? 'text-fg' : 'text-faint')}>
+              <CircleCheck size={15} className={i.ok ? 'text-accent' : 'text-line'} aria-hidden />
+              <span className="truncate">{i.label}</span>
+              <span className="tnum ml-auto text-xs text-faint">{i.w}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Card>
+  );
+}
+
+function Stat({ label, value, sub }) {
+  return (
+    <div className="rounded-xl bg-surface-2 p-3">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-0.5 text-xl font-bold">{value}</p>
+      {sub && <p className="tnum text-xs text-faint">{sub}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Body
+function BodyTab() {
+  const { state, mutate, today } = useStore();
+  const { toast } = useApp();
+  const existing = state.body.find((b) => b.date === today);
+  const [date, setDate] = useState(today);
+  const [weight, setWeight] = useState(existing?.weight ?? '');
+  const [waist, setWaist] = useState(existing?.waist ?? '');
+  const height = state.profile.heightCm;
+
+  const save = () => {
+    if (weight === '' && waist === '') return;
+    mutate((d) => ops.upsertBody(d, { date, weight, waist }));
+    toast('Measurement saved');
+  };
+
+  const w = trend(state.body, 'weight');
+  const ws = trend(state.body, 'waist');
+  const whtr = ws ? ws.value / height : null;
+  const weekly = weeklyBody(state.body).slice(0, 8);
+  const delta = (v, unit) =>
+    v == null ? '–' : (
+      <span className={v < 0 ? 'text-good' : v > 0 ? 'text-warn' : ''}>
+        {v > 0 ? '+' : ''}
+        {v} {unit}
+      </span>
+    );
+
+  return (
+    <>
+      <Card title="Log measurement" icon={Scale}>
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Date">
+            <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value || today)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-2 text-sm text-fg" />
+          </Field>
+          <Field label="Weight">
+            <NumInput value={weight} onChange={setWeight} suffix="kg" placeholder={String(state.profile.weightKg)} />
+          </Field>
+          <Field label="Waist">
+            <NumInput value={waist} onChange={setWaist} suffix="cm" placeholder="–" />
+          </Field>
+        </div>
+        <Button variant="primary" className="mt-3 w-full" onClick={save}>
+          Save
+        </Button>
+        <p className="mt-2 text-xs text-faint">Weigh in the morning after the washroom, before food. Measure waist at the navel, relaxed, after breathing out.</p>
+      </Card>
+
+      <div className="grid grid-cols-3 gap-2">
+        <Card className="!p-3">
+          <p className="text-xs text-muted">Weight</p>
+          <p className="tnum text-xl font-bold">{w ? w.value : '–'}<span className="text-xs font-normal text-muted"> kg</span></p>
+          <p className="tnum text-xs text-muted">4 wk {delta(w?.since4w, 'kg')}</p>
+        </Card>
+        <Card className="!p-3">
+          <p className="text-xs text-muted">Waist</p>
+          <p className="tnum text-xl font-bold">{ws ? ws.value : '–'}<span className="text-xs font-normal text-muted"> cm</span></p>
+          <p className="tnum text-xs text-muted">4 wk {delta(ws?.since4w, 'cm')}</p>
+        </Card>
+        <Card className="!p-3">
+          <p className="text-xs text-muted">Waist ÷ height</p>
+          <p className="tnum text-xl font-bold">{whtr ? whtr.toFixed(2) : '–'}</p>
+          <p className="text-xs text-muted">{whtr ? (whtr < 0.5 ? <span className="text-good">Healthy (&lt;0.50)</span> : `Goal <0.50 = ${Math.floor(height * 0.5)} cm`) : `Goal ${Math.floor(height * 0.5)} cm`}</p>
+        </Card>
+      </div>
+
+      <Card title="Waist (cm)" icon={Ruler}>
+        {state.body.filter((b) => b.waist).length ? (
+          <LineChart
+            ariaLabel="Waist measurement over time"
+            points={state.body.filter((b) => b.waist).map((b) => ({ date: b.date, value: b.waist }))}
+            unit="cm"
+            tone="var(--accent)"
+            goal={Math.floor(height * 0.5)}
+            goalLabel={`Healthy < ${Math.floor(height * 0.5)}`}
+          />
+        ) : (
+          <p className="text-sm text-muted">Your best belly-fat indicator. Log it weekly. Unlike the scale, it isn't skewed by creatine water.</p>
+        )}
+      </Card>
+
+      <Card title="Body weight (kg)" icon={Scale}>
+        {state.body.filter((b) => b.weight).length ? (
+          <LineChart ariaLabel="Body weight over time" points={state.body.filter((b) => b.weight).map((b) => ({ date: b.date, value: b.weight }))} unit="kg" tone="var(--water)" />
+        ) : (
+          <p className="text-sm text-muted">No weigh-ins yet.</p>
+        )}
+      </Card>
+
+      {weekly.length > 0 && (
+        <Card title="Weekly averages" padded={false}>
+          <table className="tnum w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted">
+                <th className="px-4 py-2 font-medium">Week of</th>
+                <th className="py-2 text-right font-medium">Weight</th>
+                <th className="py-2 pr-4 text-right font-medium">Waist</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/60">
+              {weekly.map((r) => (
+                <tr key={r.week}>
+                  <td className="px-4 py-2.5">{fmtShortDate(r.week)}</td>
+                  <td className="py-2.5 text-right">{r.weight ?? '–'} kg</td>
+                  <td className="py-2.5 pr-4 text-right">{r.waist ?? '–'} cm</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {state.body.length > 0 && (
+        <Card title="All entries" padded={false}>
+          <ul className="divide-y divide-line/60">
+            {[...state.body].reverse().slice(0, 30).map((b) => (
+              <li key={b.date} className="tnum flex items-center gap-2 py-1.5 pr-2 pl-4 text-sm">
+                <span className="flex-1">{fmtDay(b.date, today)}</span>
+                <span className="w-20 text-right">{b.weight ? `${b.weight} kg` : '–'}</span>
+                <span className="w-20 text-right">{b.waist ? `${b.waist} cm` : '–'}</span>
+                <IconButton icon={Trash2} size={15} label="Delete entry" className="!h-9 !w-9 hover:text-danger" onClick={() => confirm('Delete this entry?') && mutate((d) => ops.removeBody(d, b.date))} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Strength
+function StrengthTab() {
+  const { state, today } = useStore();
+  const names = useMemo(() => exerciseNamesWithHistory(state.sessions), [state.sessions]);
+  const [sel, setSel] = useState(null);
+  const name = sel || names[0]?.name;
+  const hist = useMemo(() => (name ? strengthHistory(state.sessions, name) : []), [state.sessions, name]);
+
+  if (!names.length)
+    return (
+      <Card>
+        <Empty icon={Dumbbell} title="No lifts logged yet">
+          Finish a workout and your estimated 1-rep max for every exercise is charted here.
+        </Empty>
+      </Card>
+    );
+
+  const bw = hist[0]?.bw;
+  const unit = bw ? (hist[0]?.unit === 'sec' ? 's' : 'reps') : 'kg';
+  const best = hist.reduce((a, p) => (p.value > (a?.value || 0) ? p : a), null);
+  const first = hist[0];
+  const last = hist[hist.length - 1];
+  const gain = first && last && hist.length > 1 ? Math.round((last.value - first.value) * 10) / 10 : null;
+
+  return (
+    <>
+      <div className="scrollbar-none -mx-3 flex gap-2 overflow-x-auto px-3">
+        {names.map((n) => (
+          <Chip key={n.name} active={n.name === name} onClick={() => setSel(n.name)}>
+            {n.name}
+          </Chip>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Card className="!p-3">
+          <p className="text-xs text-muted">{bw ? 'Best set' : 'Best e1RM'}</p>
+          <p className="tnum text-xl font-bold">
+            {best?.value ?? '–'}
+            <span className="text-xs font-normal text-muted"> {unit}</span>
+          </p>
+        </Card>
+        <Card className="!p-3">
+          <p className="text-xs text-muted">Change</p>
+          <p className={cx('tnum text-xl font-bold', gain > 0 && 'text-good')}>{gain == null ? '–' : `${gain > 0 ? '+' : ''}${gain}`}</p>
+        </Card>
+        <Card className="!p-3">
+          <p className="text-xs text-muted">Sessions</p>
+          <p className="tnum text-xl font-bold">{hist.length}</p>
+        </Card>
+      </div>
+      <Card title={bw ? `${name} · best set` : `${name} · estimated 1RM`} icon={Trophy} iconClass="text-lift">
+        <LineChart
+          ariaLabel={`${name} progression`}
+          points={hist.map((p) => ({ date: p.date, value: p.value, note: `Best: ${fmtSet(p.best, { unit: p.unit })}${p.bw ? '' : ' kg'}` }))}
+          unit={unit}
+          tone="var(--lift)"
+        />
+        {!bw && <p className="mt-2 text-xs text-faint">Estimated 1-rep max (Epley) from your best set each session. It rises when you add weight or reps.</p>}
+      </Card>
+      <Card title="History" padded={false}>
+        <ul className="divide-y divide-line/60">
+          {[...hist].reverse().slice(0, 12).map((p, i) => (
+            <li key={p.date + i} className="tnum flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+              <span className="shrink-0 text-muted">{fmtDay(p.date, today)}</span>
+              <span className="truncate text-right">{p.sets.map((s) => fmtSet(s, { unit: p.unit })).join(' · ')}</span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Habits
+function HabitsTab() {
+  const { state, today } = useStore();
+  const keys28 = lastNKeys(today, 28);
+  const [hover, setHover] = useState(null);
+  const scores = useMemo(() => keys28.map((k) => ({ k, ...dailyScore(state, k) })), [state, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const keys30 = lastNKeys(today, 30);
+  const sleeps = lastNKeys(today, 7).map((k) => state.days[k]?.sleep?.hours).filter(Boolean);
+  const steps = lastNKeys(addDays(today, -1), 7).map((k) => state.days[k]?.steps).filter(Boolean);
+  const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  const h = hover != null ? scores[hover] : null;
+
+  return (
+    <>
+      <Card title="Supplement streaks" icon={Flame} iconClass="text-lift">
+        <div className="space-y-4">
+          {state.supplements.map((s) => {
+            const cur = currentStreak(state.days, s.id, today);
+            return (
+              <div key={s.id}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-medium">{s.name}</span>
+                  <span className="tnum text-sm text-muted">
+                    <b className="text-fg">{cur}</b> day streak · best {bestStreak(state.days, s.id)} · {takenInLast(state.days, s.id, today, 30)}/30
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[2px]" role="img" aria-label={`${s.name}: last 30 days`}>
+                  {keys30.map((k) => (
+                    <span key={k} title={`${fmtShortDate(k)}: ${state.days[k]?.supps?.[s.id] ? 'taken' : 'missed'}`} className={cx('h-5 rounded-[3px]', state.days[k]?.supps?.[s.id] ? (s.id === 'creatine' ? 'bg-lift' : 'bg-accent') : 'bg-surface-3')} />
+                  ))}
+                </div>
+                {s.id === 'creatine' && (
+                  <p className="mt-1.5 text-xs text-faint">{cur >= 30 ? '30+ day streak. Fully saturated, keep it rolling.' : `${30 - cur} more days to a 30-day streak.`}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card title="Daily score · 4 weeks" icon={Sparkles}>
+        <div className="relative">
+          <div className="mb-1 grid grid-cols-7 gap-1.5 text-center text-[10px] text-faint">
+            {keys28.slice(0, 7).map((k) => (
+              <span key={k}>{['S', 'M', 'T', 'W', 'T', 'F', 'S'][parseYmd(k).getDay()]}</span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1.5" onPointerLeave={() => setHover(null)}>
+            {scores.map((d, i) => (
+              <button
+                key={d.k}
+                type="button"
+                onPointerEnter={() => setHover(i)}
+                onClick={() => setHover(i)}
+                onFocus={() => setHover(i)}
+                aria-label={`${fmtShortDate(d.k)}: score ${d.logged ? d.score : 'no data'}`}
+                className={cx('tnum aspect-square rounded-md text-[11px] font-semibold', hover === i && 'ring-2 ring-fg/60', d.k === today && 'outline outline-1 outline-offset-1 outline-muted')}
+                style={{ background: d.logged ? `color-mix(in oklab, var(--accent) ${15 + d.score * 0.75}%, var(--surface-2))` : 'var(--surface-2)', color: d.logged && d.score >= 60 ? 'var(--on-accent)' : 'var(--muted)' }}
+              >
+                {d.logged ? d.score : ''}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 min-h-5 text-xs text-muted">
+            {h ? (
+              <>
+                <b className="text-fg">{fmtDay(h.k, today)}</b> · {h.logged ? `${h.score}/100 · ${h.items.filter((x) => x.ok).map((x) => x.id).join(', ') || 'nothing hit'}` : 'no data'}
+              </>
+            ) : (
+              'Protein, calories, water, training/steps, creatine and sleep. Tap a day for details.'
+            )}
+          </p>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Card className="!p-3.5">
+          <p className="flex items-center gap-1.5 text-xs text-muted">
+            <Moon size={14} /> Avg sleep (7d)
+          </p>
+          <p className="tnum mt-0.5 text-2xl font-bold">{avg(sleeps) ? avg(sleeps).toFixed(1) : '–'}<span className="text-sm font-normal text-muted"> h</span></p>
+          <p className="text-xs text-faint">goal {state.targets.sleepHours} h</p>
+        </Card>
+        <Card className="!p-3.5">
+          <p className="flex items-center gap-1.5 text-xs text-muted">
+            <Footprints size={14} /> Avg steps (7d)
+          </p>
+          <p className="tnum mt-0.5 text-2xl font-bold">{avg(steps) ? fmtNum(avg(steps)) : '–'}</p>
+          <p className="text-xs text-faint">goal {fmtNum(state.targets.steps)}</p>
+        </Card>
+      </div>
+    </>
+  );
+}

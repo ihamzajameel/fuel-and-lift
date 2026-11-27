@@ -1,0 +1,110 @@
+// Pure mutations on a draft (deep-copied) state. Use via mutate((d) => ops.x(d, ...)).
+import { uid } from './time';
+
+export const ensureDay = (d, key) => {
+  if (!d.days[key]) d.days[key] = { foods: [], water: [], supps: {}, done: {}, steps: null };
+  const day = d.days[key];
+  day.foods ||= [];
+  day.water ||= [];
+  day.supps ||= {};
+  day.done ||= {};
+  return day;
+};
+
+export function logFood(d, key, item, at = Date.now()) {
+  const day = ensureDay(d, key);
+  const entry = {
+    id: item.id || uid(),
+    name: item.name,
+    qty: item.qty ?? 1,
+    unit: item.unit || 'serving',
+    kcal: Number(item.kcal) || 0,
+    p: Number(item.p) || 0,
+    c: Number(item.c) || 0,
+    f: Number(item.f) || 0,
+    presetId: item.presetId || null,
+    at: item.at || at,
+  };
+  const i = day.foods.findIndex((f) => f.id === entry.id);
+  if (i >= 0) day.foods[i] = entry;
+  else day.foods.push(entry);
+  return entry;
+}
+
+export function logPreset(d, key, preset, entryId) {
+  const entry = logFood(d, key, { ...preset, id: entryId, presetId: preset.id });
+  if (preset.supplementId) ensureDay(d, key).supps[preset.supplementId] = true;
+  return entry;
+}
+
+export function removeFood(d, key, id) {
+  const day = ensureDay(d, key);
+  day.foods = day.foods.filter((f) => f.id !== id);
+}
+
+export function addWater(d, key, ml, id = uid(), at = Date.now()) {
+  ensureDay(d, key).water.push({ id, ml: Number(ml), at });
+}
+
+export function removeWater(d, key, id) {
+  const day = ensureDay(d, key);
+  day.water = day.water.filter((w) => w.id !== id);
+}
+
+export function setSupp(d, key, suppId, val) {
+  ensureDay(d, key).supps[suppId] = !!val;
+}
+
+export function markDone(d, key, okey, val = true) {
+  const day = ensureDay(d, key);
+  if (val) day.done[okey] = true;
+  else delete day.done[okey];
+}
+
+/** Run a reminder's linked quick actions (log preset, add water, tick supplements). */
+export function runReminderActions(d, key, reminder, okey) {
+  const a = reminder.actions || {};
+  for (const pid of a.presetIds || []) {
+    const p = d.presets.find((x) => x.id === pid);
+    if (p) logPreset(d, key, p);
+  }
+  if (a.waterMl) addWater(d, key, a.waterMl);
+  for (const sid of a.supplementIds || []) setSupp(d, key, sid, true);
+  if (okey) markDone(d, key, okey);
+}
+
+export function snooze(d, reminderId, okey, minutes = 10) {
+  d.meta.snoozes = (d.meta.snoozes || []).filter((z) => z.at > Date.now() - 3600e3);
+  d.meta.snoozes.push({ id: reminderId, okey, at: Date.now() + minutes * 60e3 });
+}
+
+export function upsertBody(d, entry) {
+  const i = d.body.findIndex((b) => b.date === entry.date);
+  const clean = {
+    date: entry.date,
+    weight: entry.weight === '' || entry.weight == null ? null : Number(entry.weight),
+    waist: entry.waist === '' || entry.waist == null ? null : Number(entry.waist),
+  };
+  if (i >= 0) d.body[i] = { ...d.body[i], ...Object.fromEntries(Object.entries(clean).filter(([, v]) => v !== null)) };
+  else d.body.push(clean);
+  d.body.sort((a, b) => (a.date < b.date ? -1 : 1));
+  if (clean.weight) d.profile.weightKg = clean.weight;
+}
+
+export function removeBody(d, date) {
+  d.body = d.body.filter((b) => b.date !== date);
+}
+
+export function setSleep(d, key, sleep) {
+  ensureDay(d, key).sleep = sleep;
+}
+
+export function setSteps(d, key, steps) {
+  ensureDay(d, key).steps = steps === '' || steps == null ? null : Math.max(0, Math.round(Number(steps)));
+}
+
+/** Coach-suggested calorie change: protein stays fixed, carbs absorb the difference. */
+export function applyKcalDelta(d, delta) {
+  d.targets.kcal = Math.max(1200, Math.round(d.targets.kcal + delta));
+  d.targets.c = Math.max(50, Math.round(d.targets.c + delta / 4));
+}
