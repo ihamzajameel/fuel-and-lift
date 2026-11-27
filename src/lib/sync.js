@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as ops from './ops';
 import { dayTotals } from './nutrition';
 import { nextDayIndex, plannedSession } from './workout';
+import { cloneProgram } from './defaults';
 
 export const DEFAULT_BOT_URL = import.meta.env.VITE_BOT_URL || 'https://bot-production-7ba0497f.up.railway.app';
 
@@ -62,7 +63,7 @@ export function buildSnapshot(state, today) {
   const doneToday = [...state.sessions].reverse().find((s) => s.date === today && !s.rest);
   const tg = state.meta.tg || {};
   return {
-    v: 2, // app build understands: stock packSize/since, missed, removeFood-safe undo
+    v: 3, // app build understands: stock packSize/since, missed, program.applySplit
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     dayStartHour: state.settings.dayStartHour,
     measureUnit: state.settings.measureUnit || 'in',
@@ -88,6 +89,11 @@ export function buildSnapshot(state, today) {
     })),
     presets: state.presets.map(({ id, name, kcal, p, c, f, qty, unit, supplementId }) => ({ id, name, kcal, p, c, f, qty, unit, supplementId })),
     supplements: state.supplements.map(({ id, name, stock, stockUnit, lowAt }) => ({ id, name, stock: stock === '' || stock == null ? null : Number(stock), stockUnit, lowAt })),
+    program: {
+      template: state.program.template ?? null,
+      mode: state.program.mode || 'rotation',
+      active: state.activeSession ? { dayName: state.activeSession.dayName, doneSets: state.activeSession.exercises.reduce((a, e) => a + e.sets.filter((x) => x.done).length, 0) } : null,
+    },
     nextWorkout: doneToday ? `${doneToday.dayName} (done ✓)` : next ? `${next.name}${next.type === 'rest' ? ' (rest day)' : ''}` : null,
     today: {
       key: today,
@@ -132,6 +138,19 @@ function applyOne(d, e, byId) {
       const p = d.presets.find((pr) => pr.id === x.presetId);
       if (p) ops.logPreset(d, day, p, id, e.at);
       else if (x.name) ops.logFood(d, day, { name: x.name, qty: x.qty ?? 1, unit: x.unit || 'serving', kcal: x.kcal, p: x.p, c: x.c, f: x.f, id, at: e.at });
+      break;
+    }
+    case 'program': {
+      // Owner request: move to the Mon–Sat weekday split now. An open workout with ticked sets is saved first.
+      if (x.action !== 'applySplit') break;
+      const s = d.activeSession;
+      if (s) {
+        const exercises = s.exercises.map((ex) => ({ ...ex, sets: ex.sets.filter((y) => y.done) })).filter((ex) => ex.sets.length);
+        if (exercises.length) d.sessions.push({ ...s, finishedAt: e.at, exercises });
+        d.activeSession = null;
+      }
+      d.program = cloneProgram(6);
+      d.meta.splitApplied = true;
       break;
     }
     case 'stock': {
