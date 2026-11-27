@@ -23,7 +23,7 @@ import {
   waterPace,
 } from './logic.js';
 import { estimateMeal, visionEnabled } from './vision.js';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const PORT = Number(process.env.PORT) || 8787;
