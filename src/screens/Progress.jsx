@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Activity, CircleCheck, Dumbbell, Flame, Info, Moon, Ruler, Scale, Sparkles, Trash2, TriangleAlert, Trophy, Footprints } from 'lucide-react';
+import { Activity, CircleCheck, Dumbbell, Flame, Info, Moon, Ruler, Scale, Sparkles, Target, Trash2, TriangleAlert, Trophy, Footprints } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Empty, Field, IconButton, NumInput, ScreenHeader, Segmented, cx, fmtNum } from '../components/ui';
 import { ColumnChart, LineChart } from '../components/charts';
 import { bestStreak, currentStreak, lastNKeys, nutritionSummary, takenInLast, trend, weeklyBody } from '../lib/stats';
-import { dailyScore, insights } from '../lib/coach';
+import { bodyTrend, dailyScore, insights } from '../lib/coach';
 import { exerciseNamesWithHistory, fmtSet, strengthHistory } from '../lib/workout';
-import { dayTotals } from '../lib/nutrition';
+import { dayTotals, fromLen, lenUnit, toLen } from '../lib/nutrition';
 import { addDays, fmtDay, fmtShortDate, parseYmd } from '../lib/time';
 import * as ops from '../lib/ops';
 
@@ -157,110 +157,214 @@ function Stat({ label, value, sub }) {
 }
 
 // ---------------------------------------------------------------- Body
+const MEASURES = [
+  { f: 'waist', label: 'Waist', hint: 'at the navel, relaxed' },
+  { f: 'chest', label: 'Chest', hint: 'nipple line, arms down' },
+  { f: 'arm', label: 'Bicep', hint: 'flexed, widest point' },
+];
+
+function GoalBar({ label, start, now, goal, fmt, sub }) {
+  if (goal == null || now == null) return null;
+  const pct = start === goal ? 100 : Math.max(0, Math.min(100, ((now - start) / (goal - start)) * 100));
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 text-sm">
+        <span className="font-medium">{label}</span>
+        <span className="tnum text-muted">
+          <b className="text-fg">{fmt(now)}</b> → {fmt(goal)}
+        </span>
+      </div>
+      <div className="mt-1.5 h-2 rounded-full bg-surface-3">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${pct}%` }} />
+      </div>
+      {sub && <p className="tnum mt-1 text-xs text-faint">{sub}</p>}
+    </div>
+  );
+}
+
 function BodyTab() {
   const { state, mutate, today } = useStore();
   const { toast } = useApp();
-  const existing = state.body.find((b) => b.date === today);
+  const unit = lenUnit(state);
+  const u = unit === 'in' ? 'in' : 'cm';
   const [date, setDate] = useState(today);
-  const [weight, setWeight] = useState(existing?.weight ?? '');
-  const [waist, setWaist] = useState(existing?.waist ?? '');
+  const entryFor = (k) => state.body.find((b) => b.date === k) || {};
+  const blankForm = (k) => {
+    const e = entryFor(k);
+    return { weight: e.weight ?? '', waist: toLen(e.waist, unit) ?? '', chest: toLen(e.chest, unit) ?? '', arm: toLen(e.arm, unit) ?? '' };
+  };
+  const [form, setForm] = useState(() => blankForm(today));
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const height = state.profile.heightCm;
+  const goals = state.profile.goals || {};
 
   const save = () => {
-    if (weight === '' && waist === '') return;
-    mutate((d) => ops.upsertBody(d, { date, weight, waist }));
-    toast('Measurement saved');
+    if (Object.values(form).every((v) => v === '')) return;
+    mutate((d) =>
+      ops.upsertBody(d, { date, weight: form.weight, waist: fromLen(form.waist, unit), chest: fromLen(form.chest, unit), arm: fromLen(form.arm, unit) })
+    );
+    toast('Measurements saved');
   };
 
   const w = trend(state.body, 'weight');
-  const ws = trend(state.body, 'waist');
-  const whtr = ws ? ws.value / height : null;
+  const tr = Object.fromEntries(MEASURES.map((m) => [m.f, trend(state.body, m.f)]));
+  const whtr = tr.waist ? tr.waist.value / height : null;
   const weekly = weeklyBody(state.body).slice(0, 8);
-  const delta = (v, unit) =>
-    v == null ? '–' : (
-      <span className={v < 0 ? 'text-good' : v > 0 ? 'text-warn' : ''}>
+  const L = (cm) => (cm == null ? '–' : `${toLen(cm, unit)}${unit === 'in' ? '"' : ' cm'}`);
+  const delta = (v, isLen, upGood) => {
+    if (v == null) return '–';
+    const val = isLen ? toLen(Math.abs(v), unit) * Math.sign(v) : v;
+    const good = upGood ? v > 0 : v < 0;
+    return (
+      <span className={v === 0 ? '' : good ? 'text-good' : 'text-warn'}>
         {v > 0 ? '+' : ''}
-        {v} {unit}
+        {Math.round(val * 10) / 10}
+        {isLen ? (unit === 'in' ? '"' : ' cm') : ' kg'}
       </span>
     );
+  };
+  const bulking = state.profile.goalType === 'lean_bulk';
+  const startWeight = state.body.find((b) => b.weight)?.weight ?? state.profile.weightKg;
+  const wTrend = bodyTrend(state.body, 'weight', today);
+  const eta =
+    wTrend && wTrend.perWeek > 0.05 && w && state.profile.targetWeight > w.value
+      ? `~${Math.ceil((state.profile.targetWeight - w.value) / wTrend.perWeek)} weeks at your current rate (+${Math.round(wTrend.perWeek * 100) / 100} kg/week)`
+      : bulking
+        ? 'Aim for +0.2–0.35 kg/week (about 5–6 months to goal)'
+        : null;
+  const firstOf = (f) => state.body.find((b) => b[f] != null)?.[f];
 
   return (
     <>
-      <Card title="Log measurement" icon={Scale}>
-        <div className="grid grid-cols-3 gap-2">
-          <Field label="Date">
-            <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value || today)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-2 text-sm text-fg" />
-          </Field>
+      <Card title="Goals" icon={Target} right={<Segmented size="sm" className="w-24" value={unit} onChange={(v) => mutate((d) => (d.settings.measureUnit = v))} options={[{ value: 'in', label: 'in' }, { value: 'cm', label: 'cm' }]} />}>
+        <div className="space-y-4">
+          <GoalBar label="Body weight" start={startWeight} now={w?.value ?? state.profile.weightKg} goal={state.profile.targetWeight} fmt={(v) => `${v} kg`} sub={eta} />
+          <GoalBar label="Chest" start={firstOf('chest')} now={tr.chest?.value} goal={goals.chest} fmt={L} />
+          <GoalBar
+            label="Bicep"
+            start={firstOf('arm')}
+            now={tr.arm?.value}
+            goal={goals.arm}
+            fmt={L}
+            sub={goals.armStretch ? `Stretch goal ${L(goals.armStretch)}` : null}
+          />
+          <p className="text-xs text-faint">
+            Waist is your belly-fat alarm{bulking ? ': on a lean bulk it should stay roughly flat while chest and arms grow' : ''}. Measure it weekly, same time, at the navel.
+          </p>
+        </div>
+      </Card>
+
+      <Card title="Log measurements" icon={Scale}>
+        <Field label="Date">
+          <input
+            type="date"
+            value={date}
+            max={today}
+            onChange={(e) => {
+              const k = e.target.value || today;
+              setDate(k);
+              setForm(blankForm(k));
+            }}
+            className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg"
+          />
+        </Field>
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <Field label="Weight">
-            <NumInput value={weight} onChange={setWeight} suffix="kg" placeholder={String(state.profile.weightKg)} />
+            <NumInput value={form.weight} onChange={(v) => set('weight', v)} suffix="kg" placeholder={String(state.profile.weightKg)} />
           </Field>
-          <Field label="Waist">
-            <NumInput value={waist} onChange={setWaist} suffix="cm" placeholder="–" />
-          </Field>
+          {MEASURES.map((m) => (
+            <Field key={m.f} label={m.label}>
+              <NumInput value={form[m.f]} onChange={(v) => set(m.f, v)} suffix={u} placeholder="–" />
+            </Field>
+          ))}
         </div>
         <Button variant="primary" className="mt-3 w-full" onClick={save}>
           Save
         </Button>
-        <p className="mt-2 text-xs text-faint">Weigh in the morning after the washroom, before food. Measure waist at the navel, relaxed, after breathing out.</p>
+        <p className="mt-2 text-xs text-faint">Weigh in the morning after the washroom, before your shake. Measure waist at the navel (relaxed), chest at nipple line, bicep flexed at the widest point.</p>
       </Card>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <Card className="!p-3">
           <p className="text-xs text-muted">Weight</p>
           <p className="tnum text-xl font-bold">{w ? w.value : '–'}<span className="text-xs font-normal text-muted"> kg</span></p>
-          <p className="tnum text-xs text-muted">4 wk {delta(w?.since4w, 'kg')}</p>
+          <p className="tnum text-xs text-muted">4 wk {delta(w?.since4w, false, bulking)}</p>
         </Card>
         <Card className="!p-3">
-          <p className="text-xs text-muted">Waist</p>
-          <p className="tnum text-xl font-bold">{ws ? ws.value : '–'}<span className="text-xs font-normal text-muted"> cm</span></p>
-          <p className="tnum text-xs text-muted">4 wk {delta(ws?.since4w, 'cm')}</p>
+          <p className="text-xs text-muted">Waist {whtr ? `· ${whtr.toFixed(2)} of height` : ''}</p>
+          <p className="tnum text-xl font-bold">{L(tr.waist?.value)}</p>
+          <p className="tnum text-xs text-muted">4 wk {delta(tr.waist?.since4w, true, false)}</p>
         </Card>
         <Card className="!p-3">
-          <p className="text-xs text-muted">Waist ÷ height</p>
-          <p className="tnum text-xl font-bold">{whtr ? whtr.toFixed(2) : '–'}</p>
-          <p className="text-xs text-muted">{whtr ? (whtr < 0.5 ? <span className="text-good">Healthy (&lt;0.50)</span> : `Goal <0.50 = ${Math.floor(height * 0.5)} cm`) : `Goal ${Math.floor(height * 0.5)} cm`}</p>
+          <p className="text-xs text-muted">Chest</p>
+          <p className="tnum text-xl font-bold">{L(tr.chest?.value)}</p>
+          <p className="tnum text-xs text-muted">4 wk {delta(tr.chest?.since4w, true, true)}</p>
+        </Card>
+        <Card className="!p-3">
+          <p className="text-xs text-muted">Bicep</p>
+          <p className="tnum text-xl font-bold">{L(tr.arm?.value)}</p>
+          <p className="tnum text-xs text-muted">4 wk {delta(tr.arm?.since4w, true, true)}</p>
         </Card>
       </div>
 
-      <Card title="Waist (cm)" icon={Ruler}>
-        {state.body.filter((b) => b.waist).length ? (
-          <LineChart
-            ariaLabel="Waist measurement over time"
-            points={state.body.filter((b) => b.waist).map((b) => ({ date: b.date, value: b.waist }))}
-            unit="cm"
-            tone="var(--accent)"
-            goal={Math.floor(height * 0.5)}
-            goalLabel={`Healthy < ${Math.floor(height * 0.5)}`}
-          />
-        ) : (
-          <p className="text-sm text-muted">Your best belly-fat indicator. Log it weekly. Unlike the scale, it isn't skewed by creatine water.</p>
-        )}
-      </Card>
-
       <Card title="Body weight (kg)" icon={Scale}>
         {state.body.filter((b) => b.weight).length ? (
-          <LineChart ariaLabel="Body weight over time" points={state.body.filter((b) => b.weight).map((b) => ({ date: b.date, value: b.weight }))} unit="kg" tone="var(--water)" />
+          <LineChart
+            ariaLabel="Body weight over time"
+            points={state.body.filter((b) => b.weight).map((b) => ({ date: b.date, value: b.weight }))}
+            unit="kg"
+            tone="var(--water)"
+            goal={state.profile.targetWeight}
+            goalLabel={`Goal ${state.profile.targetWeight} kg`}
+          />
         ) : (
           <p className="text-sm text-muted">No weigh-ins yet.</p>
         )}
       </Card>
+
+      {MEASURES.map((m) => {
+        const pts = state.body.filter((b) => b[m.f]).map((b) => ({ date: b.date, value: toLen(b[m.f], unit) }));
+        const goal = m.f === 'waist' ? (unit === 'in' ? toLen(height * 0.5, unit) : Math.floor(height * 0.5)) : goals[m.f] != null ? toLen(goals[m.f], unit) : null;
+        return (
+          <Card key={m.f} title={`${m.label} (${u})`} icon={Ruler}>
+            {pts.length ? (
+              <LineChart
+                ariaLabel={`${m.label} over time`}
+                points={pts}
+                unit={u}
+                tone="var(--accent)"
+                goal={goal}
+                goalLabel={m.f === 'waist' ? `Healthy < ${goal}` : `Goal ${goal}`}
+              />
+            ) : (
+              <p className="text-sm text-muted">
+                {m.f === 'waist' ? 'Measure your waist once to set a baseline. It tells you whether the weight you gain is muscle or belly fat.' : `No ${m.label.toLowerCase()} measurements yet.`}
+              </p>
+            )}
+          </Card>
+        );
+      })}
 
       {weekly.length > 0 && (
         <Card title="Weekly averages" padded={false}>
           <table className="tnum w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted">
-                <th className="px-4 py-2 font-medium">Week of</th>
-                <th className="py-2 text-right font-medium">Weight</th>
-                <th className="py-2 pr-4 text-right font-medium">Waist</th>
+                <th className="py-2 pl-4 font-medium">Week</th>
+                <th className="py-2 text-right font-medium">kg</th>
+                <th className="py-2 text-right font-medium">Waist</th>
+                <th className="py-2 text-right font-medium">Chest</th>
+                <th className="py-2 pr-4 text-right font-medium">Bicep</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/60">
               {weekly.map((r) => (
                 <tr key={r.week}>
-                  <td className="px-4 py-2.5">{fmtShortDate(r.week)}</td>
-                  <td className="py-2.5 text-right">{r.weight ?? '–'} kg</td>
-                  <td className="py-2.5 pr-4 text-right">{r.waist ?? '–'} cm</td>
+                  <td className="py-2.5 pl-4">{fmtShortDate(r.week)}</td>
+                  <td className="py-2.5 text-right">{r.weight ?? '–'}</td>
+                  <td className="py-2.5 text-right">{r.waist ? toLen(r.waist, unit) : '–'}</td>
+                  <td className="py-2.5 text-right">{r.chest ? toLen(r.chest, unit) : '–'}</td>
+                  <td className="py-2.5 pr-4 text-right">{r.arm ? toLen(r.arm, unit) : '–'}</td>
                 </tr>
               ))}
             </tbody>
@@ -273,9 +377,10 @@ function BodyTab() {
           <ul className="divide-y divide-line/60">
             {[...state.body].reverse().slice(0, 30).map((b) => (
               <li key={b.date} className="tnum flex items-center gap-2 py-1.5 pr-2 pl-4 text-sm">
-                <span className="flex-1">{fmtDay(b.date, today)}</span>
-                <span className="w-20 text-right">{b.weight ? `${b.weight} kg` : '–'}</span>
-                <span className="w-20 text-right">{b.waist ? `${b.waist} cm` : '–'}</span>
+                <span className="min-w-0 flex-1 truncate">{fmtDay(b.date, today)}</span>
+                <span className="text-right text-muted">
+                  {[b.weight && `${b.weight} kg`, b.waist && `W ${toLen(b.waist, unit)}`, b.chest && `C ${toLen(b.chest, unit)}`, b.arm && `B ${toLen(b.arm, unit)}`].filter(Boolean).join(' · ')}
+                </span>
                 <IconButton icon={Trash2} size={15} label="Delete entry" className="!h-9 !w-9 hover:text-danger" onClick={() => confirm('Delete this entry?') && mutate((d) => ops.removeBody(d, b.date))} />
               </li>
             ))}

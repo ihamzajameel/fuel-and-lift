@@ -153,6 +153,9 @@ function applyToView(v, e, s, sign) {
     case 'sleep':
       v.sleep = sign > 0 ? e.data.hours : null;
       break;
+    case 'workout':
+      v.trained = sign > 0;
+      break;
   }
 }
 
@@ -183,7 +186,7 @@ export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '
 export const L = (ml) => `${(ml / 1000).toFixed(ml % 100 === 0 ? 1 : 2)} L`;
 export const n0 = (x) => Math.round(Number(x) || 0).toLocaleString('en-US');
 
-export const EMOJI = { coffee: '🥤', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', bell: '🔔' };
+export const EMOJI = { coffee: '🥤', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', nut: '🥜', ruler: '📏', bell: '🔔' };
 
 export function describeActions(rem, state) {
   const a = rem.actions || {};
@@ -232,10 +235,13 @@ export function statusText(db, nowMs) {
 export const HELP = [
   '<b>Log by replying in plain words</b>',
   '<code>500</code> or <code>water 300</code>: water (ml)',
-  '<code>shake</code>, <code>eggs</code>, <code>dates</code>, <code>lunch</code>, <code>dinner</code>: your presets',
-  '<code>creatine</code>, <code>whey</code>, <code>ashwa</code>: tick a supplement',
-  '<code>chicken rice 550 kcal 45p 60c 12f</code>: custom food',
-  '<code>w 73.8</code> · <code>waist 88</code> · <code>sleep 7.5</code> · <code>steps 9500</code>',
+  '<code>shake</code>, <code>lunch</code>, <code>eggs</code>, <code>nuts</code>, <code>dates</code>: your meals',
+  '<code>roti chicken</code>, <code>rice chicken</code>, <code>mutton</code>, <code>daal</code>: dinner (or <code>dinner</code> to pick)',
+  '<code>creatine</code>, <code>whey</code>, <code>vit c</code>, <code>ashwa</code>: tick a supplement',
+  '<code>chicken rice 550 kcal 45p 60c 12f</code>: any other food',
+  '<code>gym done</code>: log today\'s workout as planned',
+  '<code>w 74.2</code> · <code>waist 33</code> · <code>chest 38.5</code> · <code>bicep 15</code> (inches)',
+  '<code>sleep 8</code> · <code>steps 9500</code>',
   'Combine with commas: <code>shake, 500, creatine</code>',
   '',
   '/status: today so far · /undo: undo the last log · /help',
@@ -268,9 +274,20 @@ export function parsePart(part, state) {
     const kg = num(m[1]);
     if (kg >= 30 && kg <= 250) return { type: 'body', data: { weight: kg }, label: `⚖️ Weight ${kg} kg` };
   }
-  if ((m = l.match(/^waist\s*[:=]?\s*(\d{2,3}(?:[.,]\d)?)\s*(?:cm)?$/))) {
-    const cm = num(m[1]);
-    if (cm >= 40 && cm <= 200) return { type: 'body', data: { waist: cm }, label: `📏 Waist ${cm} cm` };
+  if ((m = l.match(/^(waist|chest|biceps?|arms?)\s*[:=]?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*(in|inch|inches|"|cm)?$/))) {
+    const field = m[1].startsWith('waist') ? 'waist' : m[1].startsWith('chest') ? 'chest' : 'arm';
+    const val = num(m[2]);
+    const ok = { waist: [50, 200], chest: [60, 200], arm: [20, 70] }[field];
+    const toCm = (u) => (u === 'in' ? Math.round(val * 2.54 * 100) / 100 : val);
+    const inRange = (u) => toCm(u) >= ok[0] && toCm(u) <= ok[1];
+    let unit = m[3] === 'cm' ? 'cm' : m[3] ? 'in' : state.measureUnit === 'cm' ? 'cm' : 'in';
+    if (!m[3] && !inRange(unit)) unit = unit === 'in' ? 'cm' : 'in'; // "waist 88" is clearly cm
+    const cm = toCm(unit);
+    const name = { waist: 'Waist', chest: 'Chest', arm: 'Bicep' }[field];
+    if (cm >= ok[0] && cm <= ok[1]) return { type: 'body', data: { [field]: cm }, label: `📏 ${name} ${val}${unit === 'in' ? '"' : ' cm'}` };
+  }
+  if (/^(?:(?:gym|workout|training|lifting)\s*(?:done|finished|complete|completed|ok|✅)?|trained|lifted|done\s*(?:gym|workout|training))$/.test(l)) {
+    return { type: 'workout', data: { asPlanned: true }, label: `🏋️ Workout logged as planned${state.nextWorkout ? `: ${state.nextWorkout}` : ''}` };
   }
   if ((m = l.match(/^(?:sleep|slept)\s*[:=]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:h|hrs?|hours?)?$/))) {
     const h = num(m[1]);
@@ -295,24 +312,33 @@ export function parsePart(part, state) {
     if (food) return { type: 'food', data: food, label: `🍽️ ${food.name}: ${food.kcal} kcal, ${food.p} g P` };
   }
 
-  // Supplements: "creatine", "whey", "ashwa"
+  // Supplements: "creatine", "whey", "vit c", "ashwa"
+  const toks = l.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   for (const s of state.supplements || []) {
-    const names = [s.id.toLowerCase(), ...words(s.name)];
-    if (names.some((n) => n === l || (l.length >= 4 && n.startsWith(l)) || (n.length >= 4 && l.includes(n))))
-      return { type: 'supp', data: { id: s.id, value: true }, label: `💊 ${s.name} ✓` };
+    const names = [s.id.toLowerCase(), ...words(s.name), s.name.toLowerCase().replace(/[^a-z0-9]/g, '')];
+    const hit =
+      names.some((n) => n === l.replace(/[^a-z0-9]/g, '')) ||
+      toks.some((t) => t.length >= 3 && names.some((n) => n.startsWith(t) || (n.length >= 4 && t.startsWith(n))));
+    if (hit && toks.length <= 3) return { type: 'supp', data: { id: s.id, value: true }, label: `💊 ${s.name} ✓` };
   }
 
   // Presets: best word overlap ("shake" → Morning Shake, "eggs" → 2 Eggs + 6 Almonds)
   const want = words(l);
   if (want.length) {
-    let best = null;
-    for (const pr of state.presets || []) {
-      const have = words(pr.name);
-      const score = want.filter((w) => have.some((h) => h === w || h.startsWith(w) || w.startsWith(h))).length;
-      if (score > 0 && (!best || score > best.score)) best = { pr, score };
+    const scored = (state.presets || [])
+      .map((pr) => {
+        const have = words(pr.name);
+        return { pr, score: want.filter((w) => have.some((h) => h === w || h.startsWith(w) || w.startsWith(h))).length };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    if (top && top.score >= Math.ceil(want.length / 2)) {
+      const tied = scored.filter((x) => x.score === top.score);
+      if (tied.length > 1)
+        return { type: 'choose', data: { presetIds: tied.slice(0, 6).map((x) => x.pr.id) }, label: `Which ${p}?` };
+      return { type: 'preset', data: { presetId: top.pr.id }, label: `🍽️ ${top.pr.name} (${top.pr.kcal} kcal, ${top.pr.p} g P)` };
     }
-    if (best && best.score >= Math.ceil(want.length / 2))
-      return { type: 'preset', data: { presetId: best.pr.id }, label: `🍽️ ${best.pr.name} (${best.pr.kcal} kcal, ${best.pr.p} g P)` };
   }
   return null;
 }

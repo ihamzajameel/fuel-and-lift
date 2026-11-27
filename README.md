@@ -33,7 +33,7 @@ Live at **https://fit.fineradesk.com** (GitHub Pages with a custom domain; DNS C
 https://bot-production-7ba0497f.up.railway.app
 
 - Every 30 s it checks your reminder schedule (in your phone's timezone, with the 4 AM day rollover) and sends due reminders to Telegram with buttons: **✅ Log**, **+150/+250/+500 ml**, **⏰ 10 min**, **👍 Done**. Reminders you've already handled are skipped.
-- Reply in plain words to log: `500`, `water 300`, `shake`, `eggs`, `dates`, `lunch`, `dinner`, `creatine`, `whey`, `ashwa`, `chicken rice 550 kcal 45p 60c 12f`, `w 73.8`, `waist 88`, `sleep 7.5`, `steps 9500`. Combine with commas. `/status`, `/undo`, `/help`.
+- Reply in plain words to log: `500`, `water 300`, `shake`, `lunch`, `eggs`, `nuts`, `dates`, `roti chicken` / `rice chicken` / `mutton` / `daal` (or `dinner` to pick), `creatine`, `whey`, `vit c`, `ashwa`, `chicken rice 550 kcal 45p 60c 12f`, `gym done`, `w 74.2`, `waist 33`, `chest 38.5`, `bicep 15` (inches by default), `sleep 8`, `steps 9500`. Combine with commas. `/status`, `/undo`, `/help`.
 - The app pushes your plan + today's totals to the bot and pulls what you logged in Telegram (every 20 s while open, and on every open).
 - Pairing: More → Reminders → **Connect Telegram** → tap Start in Telegram. The app keeps a random device key (not included in JSON backups); the bot stores only its hash and only talks to the paired chat.
 - Data on the bot: your plan, today's totals and recent Telegram logs, in `/data/fuel-lift.json` on a Railway volume. No history, body measurements or workouts are sent to it.
@@ -59,6 +59,14 @@ Public repos get unlimited Actions minutes, so this is only needed if Actions is
 - For alarms that are **guaranteed** with the app closed, use More → Reminders → **Add to calendar**. It exports a repeating `.ics` calendar with alerts.
 - Reminders you've already handled stay quiet (e.g. log your shake early and the 9:30 AM reminder won't fire).
 - `public/sw.js` already handles `push` events, so a small Web Push backend can be added later for true background push.
+
+## Current plan (v2, 27 Nov 2026)
+
+- Goal: lean bulk 74 → 80 kg while keeping belly fat down; chest 38.5" → 40", bicep 15" → 16–17"
+- Targets: 2,850 kcal · 160 g protein · 360 g carbs · 85 g fat · 2.8 L water · 8 h sleep · 8k steps
+- Day: shake 10:45 AM · water 12:30 PM · lunch + water 4 PM · eggs + Vitamin C 6 PM · nuts 6:45 PM · water 7:30 PM · dates + 1 L lime water 9 PM · gym 10 PM · dinner + creatine midnight · ashwagandha 1:30 AM · weekly check-in Sunday 11 AM
+- Split (by weekday): Mon/Thu Chest & Triceps · Tue/Fri Back & Biceps · Wed/Sat Shoulders & Legs (heavy + volume variants) · Sun rest
+- Existing installs are moved to this plan automatically on next open (logs, workouts and custom items are kept)
 
 ## Features
 

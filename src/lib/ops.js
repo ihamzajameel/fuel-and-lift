@@ -78,17 +78,21 @@ export function snooze(d, reminderId, okey, minutes = 10) {
   d.meta.snoozes.push({ id: reminderId, okey, at: Date.now() + minutes * 60e3 });
 }
 
+export const BODY_FIELDS = ['weight', 'waist', 'chest', 'arm'];
+
+/** Upsert a body entry. Lengths are stored in cm; blank fields keep what's already there. */
 export function upsertBody(d, entry) {
   const i = d.body.findIndex((b) => b.date === entry.date);
-  const clean = {
-    date: entry.date,
-    weight: entry.weight === '' || entry.weight == null ? null : Number(entry.weight),
-    waist: entry.waist === '' || entry.waist == null ? null : Number(entry.waist),
-  };
-  if (i >= 0) d.body[i] = { ...d.body[i], ...Object.fromEntries(Object.entries(clean).filter(([, v]) => v !== null)) };
+  const clean = { date: entry.date };
+  for (const f of BODY_FIELDS) {
+    const v = entry[f];
+    if (v !== '' && v != null && !Number.isNaN(Number(v))) clean[f] = Number(v);
+  }
+  if (i >= 0) d.body[i] = { ...d.body[i], ...clean };
   else d.body.push(clean);
   d.body.sort((a, b) => (a.date < b.date ? -1 : 1));
-  if (clean.weight) d.profile.weightKg = clean.weight;
+  const latest = [...d.body].reverse().find((b) => b.weight);
+  if (latest) d.profile.weightKg = latest.weight;
 }
 
 export function removeBody(d, date) {

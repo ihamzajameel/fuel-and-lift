@@ -78,3 +78,8 @@ export function energyEstimate(profile) {
   const bmr = 10 * w + 6.25 * h - 5 * a + (sex === 'female' ? -161 : 5);
   return { bmr: Math.round(bmr), tdee: Math.round(bmr * (Number(activity) || 1.55)) };
 }
+
+// ---- body measurement units (stored in cm) ----
+export const lenUnit = (state) => state.settings.measureUnit || 'in';
+export const toLen = (cm, unit) => (cm == null ? null : unit === 'in' ? Math.round((cm / 2.54) * 10) / 10 : Math.round(cm * 10) / 10);
+export const fromLen = (v, unit) => (v === '' || v == null ? '' : unit === 'in' ? Math.round(Number(v) * 2.54 * 100) / 100 : Number(v));

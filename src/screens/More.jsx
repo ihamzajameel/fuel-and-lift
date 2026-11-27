@@ -21,7 +21,7 @@ import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Field, IconButton, NumInput, ScreenHeader, Segmented, TextInput, Toggle, cx, fmtNum } from '../components/ui';
 import Reminders from './Reminders';
-import { energyEstimate, kcalFromMacros } from '../lib/nutrition';
+import { energyEstimate, fromLen, kcalFromMacros, lenUnit, toLen } from '../lib/nutrition';
 import { makeBackup, parseBackup } from '../lib/storage';
 import { makeDefaultState } from '../lib/defaults';
 import { daysBetween, fmt12, uid, ymd } from '../lib/time';
@@ -57,6 +57,7 @@ function SettingsMain() {
   const setS = (k, v) => mutate((d) => (d.settings[k] = v));
   const num = (v) => (v === '' ? '' : Number(v));
   const perm = notifPermission();
+  const unit = lenUnit(state);
   const fileRef = useRef(null);
 
   // ---- install prompt ----
@@ -183,7 +184,25 @@ function SettingsMain() {
               <option value={1.725}>High (6+ workouts or active job)</option>
             </select>
           </Field>
-          <Field label="Goal" className="mt-3">
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Field label="Goal">
+              <select value={p.goalType || 'cut'} onChange={(e) => setP('goalType', e.target.value)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg">
+                <option value="lean_bulk">Lean bulk</option>
+                <option value="cut">Fat loss</option>
+                <option value="recomp">Recomp</option>
+              </select>
+            </Field>
+            <Field label="Target weight">
+              <NumInput value={p.targetWeight} onChange={(v) => setP('targetWeight', num(v))} suffix="kg" />
+            </Field>
+            <Field label={`Chest goal (${unit})`}>
+              <NumInput value={toLen(p.goals?.chest, unit) ?? ''} onChange={(v) => mutate((d) => (d.profile.goals = { ...(d.profile.goals || {}), chest: v === '' ? null : fromLen(v, unit) }))} suffix={unit} />
+            </Field>
+            <Field label={`Bicep goal (${unit})`}>
+              <NumInput value={toLen(p.goals?.arm, unit) ?? ''} onChange={(v) => mutate((d) => (d.profile.goals = { ...(d.profile.goals || {}), arm: v === '' ? null : fromLen(v, unit) }))} suffix={unit} />
+            </Field>
+          </div>
+          <Field label="Goal note" className="mt-3">
             <TextInput value={p.goal} onChange={(e) => setP('goal', e.target.value)} />
           </Field>
           <div className="mt-3 rounded-xl bg-surface-2 p-3 text-sm">
@@ -195,7 +214,7 @@ function SettingsMain() {
               <b className="tnum text-fg">
                 {est.tdee - t.kcal >= 0 ? `${fmtNum(est.tdee - t.kcal)} kcal deficit` : `${fmtNum(t.kcal - est.tdee)} kcal surplus`}
               </b>
-              {est.tdee - t.kcal > 0 && ` ≈ ${((((est.tdee - t.kcal) * 7) / 7700) * 1).toFixed(2)} kg fat/week`}. Protein is{' '}
+              {est.tdee - t.kcal > 0 ? ` ≈ ${(((est.tdee - t.kcal) * 7) / 7700).toFixed(2)} kg fat loss/week` : ' (lean bulk: aim for +0.2–0.35 kg/week)'}. Protein is{' '}
               <b className="tnum text-fg">{(t.p / (p.weightKg || 1)).toFixed(1)} g/kg</b> (1.6–2.2 recommended).
             </p>
           </div>

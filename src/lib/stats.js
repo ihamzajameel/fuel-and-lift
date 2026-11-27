@@ -62,18 +62,17 @@ export const weekStart = (key) => {
   return ymd(d);
 };
 
-export function weeklyBody(body) {
+export function weeklyBody(body, fields = ['weight', 'waist', 'chest', 'arm']) {
   const map = new Map();
   for (const b of body) {
     const w = weekStart(b.date);
-    if (!map.has(w)) map.set(w, { week: w, weights: [], waists: [] });
+    if (!map.has(w)) map.set(w, { week: w, vals: Object.fromEntries(fields.map((f) => [f, []])) });
     const m = map.get(w);
-    if (b.weight) m.weights.push(b.weight);
-    if (b.waist) m.waists.push(b.waist);
+    for (const f of fields) if (b[f]) m.vals[f].push(b[f]);
   }
-  const avg = (a) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : null);
+  const avg = (a) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 100) / 100 : null);
   return [...map.values()]
-    .map((m) => ({ week: m.week, weight: avg(m.weights), waist: avg(m.waists), n: Math.max(m.weights.length, m.waists.length) }))
+    .map((m) => ({ week: m.week, ...Object.fromEntries(fields.map((f) => [f, avg(m.vals[f])])) }))
     .sort((a, b) => (a.week < b.week ? 1 : -1));
 }
 

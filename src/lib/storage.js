@@ -1,11 +1,13 @@
-import { makeDefaultState } from './defaults';
+import { PLAN_VERSION, applyPlanV2, makeDefaultState } from './defaults';
+import { dayKey } from './time';
 
 export const STORAGE_KEY = 'fuel-lift:v1';
 
 export function migrate(raw) {
   const d = makeDefaultState();
   const s = raw && typeof raw === 'object' ? raw : {};
-  return {
+  const needsPlan = !(s.meta && s.meta.plan >= PLAN_VERSION);
+  const out = {
     ...d,
     ...s,
     profile: { ...d.profile, ...(s.profile || {}) },
@@ -21,6 +23,11 @@ export function migrate(raw) {
     days: s.days && typeof s.days === 'object' ? s.days : {},
     version: d.version,
   };
+  if (needsPlan) {
+    applyPlanV2(out, dayKey(new Date(), out.settings.dayStartHour));
+    out.meta.planNotice = true;
+  }
+  return out;
 }
 
 export function loadState() {

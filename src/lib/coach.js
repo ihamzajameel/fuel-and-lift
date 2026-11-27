@@ -44,7 +44,12 @@ export function dailyScore(state, key) {
   const trained = state.sessions.some((s) => s.date === key && !s.rest);
   const items = [
     { id: 'protein', label: `Protein ≥ ${Math.round(t.p * 0.9)} g`, ok: tot.p >= t.p * 0.9, w: 25 },
-    { id: 'kcal', label: 'Calories within target', ok: tot.kcal >= t.kcal * 0.85 && tot.kcal <= t.kcal * 1.08, w: 20 },
+    {
+      id: 'kcal',
+      label: state.profile.goalType === 'lean_bulk' ? `Calories ≥ ${Math.round(t.kcal * 0.93).toLocaleString()}` : 'Calories within target',
+      ok: state.profile.goalType === 'lean_bulk' ? tot.kcal >= t.kcal * 0.93 && tot.kcal <= t.kcal * 1.12 : tot.kcal >= t.kcal * 0.85 && tot.kcal <= t.kcal * 1.08,
+      w: 20,
+    },
     { id: 'water', label: 'Water ≥ 90%', ok: tot.water >= t.water * 0.9, w: 15 },
     { id: 'move', label: `Workout or ${(t.steps / 1000).toFixed(0)}k steps`, ok: trained || (day?.steps || 0) >= t.steps, w: 20 },
     { id: 'creatine', label: 'Creatine taken', ok: !!day?.supps?.creatine, w: 10 },
@@ -62,16 +67,52 @@ export function insights(state, today) {
   const last7 = lastNKeys(yesterday, 7);
   const loggedDays = last7.filter((k) => dayTotals(state.days[k]).kcal > 0);
 
-  // 1) Weight trend -> calorie adjustment
+  // 1) Weight trend -> calorie adjustment (goal-aware)
+  const goal = state.profile.goalType || 'cut';
+  const target = Number(state.profile.targetWeight) || null;
   const wt = bodyTrend(state.body, 'weight', today);
   const waist = bodyTrend(state.body, 'waist', today);
+  const inch = (cm) => r1(cm / 2.54);
+  const lenTxt = (cm) => (state.settings.measureUnit === 'cm' ? `${r1(cm)} cm` : `${inch(cm)}"`);
   if (!wt) {
     out.push({
       id: 'weigh',
       tone: 'info',
       title: 'Unlock trend coaching',
-      text: 'Weigh yourself 2–3× a week, first thing in the morning after the washroom, and measure your waist weekly at the navel. After ~2 weeks the coach can tune your calories.',
+      text:
+        goal === 'lean_bulk'
+          ? 'Weigh yourself 2–3× a week first thing after waking, and measure waist, chest and bicep every Sunday. After ~2 weeks the coach checks that you gain at the right speed and that the gain goes to chest and arms, not your belly.'
+          : 'Weigh yourself 2–3× a week, first thing in the morning after the washroom, and measure your waist weekly at the navel. After ~2 weeks the coach can tune your calories.',
     });
+  } else if (goal === 'lean_bulk') {
+    const pct = (wt.perWeek / weight) * 100;
+    const rate = `${wt.perWeek > 0 ? '+' : ''}${r1(wt.perWeek)} kg/week (${r1(pct)}%)`;
+    const waistFast = waist && waist.perWeek > 0.25; // > ~1 cm a month
+    const eta = wt.perWeek > 0.05 && target && target > weight ? Math.ceil((target - weight) / wt.perWeek) : null;
+    if (pct > 0.6 || (waistFast && pct > 0)) {
+      out.push({
+        id: 'bulk-fast',
+        tone: 'warn',
+        title: waistFast ? 'Waist is growing fast' : 'Gaining faster than ideal',
+        text: `Trend: ${rate}${waist ? `, waist ${waist.perWeek > 0 ? '+' : ''}${lenTxt(waist.perWeek * 4.3)} a month` : ''}. Above ~0.5% a week, or a waist growing more than ~1 cm a month, more of the gain is belly fat. Drop ~150 kcal (mostly carbs) and keep your steps up.`,
+        action: { label: '−150 kcal', delta: -150 },
+      });
+    } else if (pct >= 0.15) {
+      out.push({
+        id: 'bulk-ok',
+        tone: 'good',
+        title: 'Lean bulk on track',
+        text: `Trend: ${rate}. 0.25–0.5% a week is the sweet spot for adding muscle with little fat.${eta ? ` At this rate you reach ${target} kg in about ${eta} weeks.` : ''}`,
+      });
+    } else if (wt.span >= 14) {
+      out.push({
+        id: 'bulk-stall',
+        tone: 'warn',
+        title: 'Not gaining yet',
+        text: `Trend: ${rate} over ${wt.span} days. Muscle needs a small surplus: add ~150 kcal, e.g. 1 extra roti at dinner or a laban with lunch. Check your logs first; missed snacks add up.`,
+        action: { label: '+150 kcal', delta: 150 },
+      });
+    }
   } else {
     const pct = (wt.perWeek / weight) * 100;
     const rate = `${wt.perWeek > 0 ? '+' : ''}${r1(wt.perWeek)} kg/week (${r1(pct)}%)`;
@@ -90,7 +131,7 @@ export function insights(state, today) {
         id: 'recomp',
         tone: 'good',
         title: 'Recomposition: waist is shrinking',
-        text: `Scale is flat (${rate}) but your waist is dropping ${r1(-waist.perWeek)} cm/week. That's fat loss masked by muscle and creatine water. Don't cut calories.`,
+        text: `Scale is flat (${rate}) but your waist is dropping ${lenTxt(-waist.perWeek)} a week. That's fat loss masked by muscle and creatine water. Don't cut calories.`,
       });
     } else if (wt.span >= 14) {
       out.push({
@@ -101,6 +142,34 @@ export function insights(state, today) {
         action: { label: '−150 kcal', delta: -150 },
       });
     }
+  }
+
+  // 1b) Chest & bicep growth (what a lean bulk is for)
+  const chest = bodyTrend(state.body, 'chest', today, 42);
+  const arm = bodyTrend(state.body, 'arm', today, 42);
+  if (chest || arm) {
+    const parts = [];
+    if (chest) parts.push(`chest ${chest.perWeek >= 0 ? '+' : ''}${lenTxt(chest.perWeek * 4.3)}/month`);
+    if (arm) parts.push(`bicep ${arm.perWeek >= 0 ? '+' : ''}${lenTxt(arm.perWeek * 4.3)}/month`);
+    const growing = (chest?.perWeek ?? 0) > 0 || (arm?.perWeek ?? 0) > 0;
+    out.push({
+      id: 'measures',
+      tone: growing ? 'good' : 'info',
+      title: growing ? 'Chest & arms are growing' : 'Chest & arms holding steady',
+      text: `Trend: ${parts.join(', ')}. ${growing ? 'Keep adding reps or weight every week.' : 'Size follows strength: beat last session on your main lifts, and make sure you hit the calorie target.'}`,
+    });
+  }
+
+  // 1c) Bulk needs the calories actually eaten
+  if (goal === 'lean_bulk' && loggedDays.length >= 3) {
+    const avgK = Math.round(loggedDays.reduce((a, k) => a + dayTotals(state.days[k]).kcal, 0) / loggedDays.length);
+    if (avgK < t.kcal - 250)
+      out.push({
+        id: 'bulk-gap',
+        tone: 'warn',
+        title: `Eating ${(t.kcal - avgK).toLocaleString()} kcal under target`,
+        text: `You're averaging ${avgK.toLocaleString()} of ${t.kcal.toLocaleString()} kcal. Easy adds that fit your day: 1 extra roti at dinner (+120), a laban/yogurt (+120), a full handful of nuts instead of half (+115), a 3rd boti of chicken (+110).`,
+      });
   }
 
   // 2) Protein: amount and distribution

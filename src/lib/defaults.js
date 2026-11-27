@@ -1,29 +1,38 @@
 // Pre-loaded defaults for Fuel & Lift. Everything here is editable in the app.
+// Plan v2 (27 Nov 2026): lean bulk 74 → 80 kg while keeping belly fat down,
+// built around the real day: wake 10:30 AM, office 12–8:30 PM, gym ~10 PM, dinner at midnight, sleep 2 AM.
+
+export const PLAN_VERSION = 2;
 
 export const DEFAULT_PROFILE = {
   age: 31,
   sex: 'male',
   weightKg: 74,
-  heightCm: 175,
-  activity: 1.55, // moderately active: 4 lifting sessions + steps
-  goal: 'Belly fat loss + strength gain',
+  heightCm: 178, // 5'10"
+  activity: 1.55, // office job + 6 lifting sessions a week
+  goal: 'Lean bulk to 80 kg, keep belly fat down',
+  goalType: 'lean_bulk', // lean_bulk | cut | recomp
+  targetWeight: 80,
+  goals: { chest: 101.6, arm: 40.6, armStretch: 43.2 }, // cm: chest 40", bicep 16" (stretch 17")
+  wakeTime: '10:30',
   gymTime: '22:00',
   bedTime: '02:00',
 };
 
+// Mifflin–St Jeor maintenance ≈ 2,650–2,700 kcal; +~200 surplus for ~0.25 kg/week of mostly lean gain.
 export const DEFAULT_TARGETS = {
-  kcal: 2200,
-  p: 145,
-  c: 220,
-  f: 65,
+  kcal: 2850,
+  p: 160, // ~2.2 g/kg now, 2.0 g/kg at 80 kg
+  c: 360,
+  f: 85,
   water: 2800,
-  steps: 9000, // NEAT matters for fat loss: 8–10k/day
-  sleepHours: 7.5, // 2:00 AM bed -> ~9:30 AM wake
-  // Water pacing: front-load 80% before 9 PM to avoid night-time washroom trips.
-  waterStart: '09:30',
+  steps: 8000, // keeps fat gain low on a bulk
+  sleepHours: 8, // 2:00 AM -> 10:30 AM
+  // Water pacing follows your routine: 12:30 PM, 4 PM, 7:30 PM, 1 L at the gym, 300 ml at midnight.
+  waterStart: '12:00',
   waterFrontBy: '21:00',
-  waterFrontPct: 80,
-  waterEnd: '01:00',
+  waterFrontPct: 55,
+  waterEnd: '00:30',
 };
 
 export const DEFAULT_SETTINGS = {
@@ -34,151 +43,85 @@ export const DEFAULT_SETTINGS = {
   keepAwake: true,
   dayStartHour: 4, // logs before 4 AM count toward the previous day
   barKg: 20,
+  measureUnit: 'in', // body measurements shown in inches (stored in cm)
 };
 
 export const DEFAULT_SUPPLEMENTS = [
-  { id: 'whey', name: 'ON Whey', dose: '1 scoop' },
-  { id: 'creatine', name: 'Creatine', dose: '5 g monohydrate' },
-  { id: 'ashwa', name: 'Ashwagandha', dose: '1 capsule · optional' },
+  { id: 'whey', name: 'ON Whey', dose: '1 scoop (25 g protein)' },
+  { id: 'creatine', name: 'Creatine', dose: '5 g with 300 ml water' },
+  { id: 'vitc', name: 'Vitamin C', dose: '1 capsule · 6 PM' },
+  { id: 'ashwa', name: 'Ashwagandha', dose: '1 capsule · before sleep' },
 ];
 
+// Macros are estimates for typical portions. Edit them to match your actual plate.
 export const DEFAULT_PRESETS = [
   {
     id: 'shake',
     name: 'Morning Shake',
-    detail: 'ON Whey + 250 ml milk + banana + 4×15 mL oats + 15 mL seeds + 5 mL PB',
+    detail: '500 ml milk + banana + 5 tbsp oats + ½ tbsp PB + 1 tbsp each chia, alsi (flax), sunflower & pumpkin seeds + 1 scoop ON Whey',
     qty: 1,
     unit: 'serving',
-    kcal: 480,
-    p: 35,
-    c: 58,
-    f: 12,
+    kcal: 900,
+    p: 55,
+    c: 85,
+    f: 40,
     supplementId: 'whey',
   },
-  { id: 'eggs-almonds', name: '2 Eggs + 6 Almonds', detail: 'Evening snack', qty: 1, unit: 'serving', kcal: 190, p: 14, c: 2, f: 14 },
-  { id: 'dates', name: '2 Dates', detail: 'Pre-workout fuel', qty: 2, unit: 'piece', kcal: 130, p: 1, c: 35, f: 0 },
-  {
-    id: 'lunch',
-    name: 'Lunch Plate',
-    detail: 'Estimate: lean protein + veg + 1 carb. Edit to match your plate',
-    qty: 1,
-    unit: 'serving',
-    kcal: 600,
-    p: 45,
-    c: 60,
-    f: 18,
-  },
-  {
-    id: 'dinner',
-    name: 'Post-Workout Dinner',
-    detail: 'Estimate. Edit to match your usual dinner',
-    qty: 1,
-    unit: 'serving',
-    kcal: 650,
-    p: 50,
-    c: 65,
-    f: 20,
-  },
+  { id: 'lunch', name: 'Lunch: Rice Bowl + Chicken Leg', detail: 'Estimate: ~1.5 cups rice + 1 leg piece', qty: 1, unit: 'serving', kcal: 650, p: 33, c: 75, f: 20 },
+  { id: 'eggs', name: '2 Boiled Eggs (1 whole + 1 white)', detail: '6 PM snack', qty: 1, unit: 'serving', kcal: 90, p: 10, c: 1, f: 5 },
+  { id: 'nuts', name: 'Mixed Nuts (½ handful)', detail: 'Almonds, cashews, pistachios ~20 g', qty: 20, unit: 'g', kcal: 115, p: 4, c: 5, f: 10 },
+  { id: 'dates', name: '2 Dates', detail: 'Pre-gym fuel', qty: 2, unit: 'piece', kcal: 130, p: 1, c: 35, f: 0 },
+  { id: 'dinner-roti-chicken', name: 'Dinner: Roti + Chicken', detail: '2 roti + 2 boti chicken curry', qty: 1, unit: 'serving', kcal: 470, p: 33, c: 48, f: 16 },
+  { id: 'dinner-rice-chicken', name: 'Dinner: Rice + Chicken', detail: '1 plate rice + 2 boti chicken curry', qty: 1, unit: 'serving', kcal: 500, p: 31, c: 62, f: 14 },
+  { id: 'dinner-roti-mutton', name: 'Dinner: Roti + Mutton', detail: '2 roti + 2 boti mutton', qty: 1, unit: 'serving', kcal: 540, p: 27, c: 46, f: 27 },
+  { id: 'dinner-roti-daal', name: 'Dinner: Roti + Daal (dal)', detail: '2 roti + 1 bowl daal', qty: 1, unit: 'serving', kcal: 480, p: 18, c: 74, f: 12 },
+  { id: 'extra-roti', name: 'Extra Roti', detail: 'Bulking add-on', qty: 1, unit: 'piece', kcal: 120, p: 4, c: 22, f: 2 },
+  { id: 'laban', name: 'Yogurt / Laban (200 g)', detail: 'Bulking add-on: protein + calories', qty: 200, unit: 'g', kcal: 120, p: 8, c: 10, f: 5 },
 ];
 
+const R = (id, title, time, body, icon, actions, extra = {}) => ({
+  id,
+  title,
+  body,
+  kind: 'fixed',
+  time,
+  enabled: true,
+  days: [],
+  icon,
+  actions: { presetIds: [], waterMl: 0, supplementIds: [], ...actions },
+  builtin: true,
+  ...extra,
+});
+
 export const DEFAULT_REMINDERS = [
-  {
-    id: 'morning',
-    title: 'Morning shake + 500 ml water',
-    body: '1 scoop ON Whey + 250 ml milk + 1 banana + 4× 15 mL oats + 1× 15 mL mixed seeds + 1× 5 mL peanut butter. Then 500 ml water.',
-    kind: 'fixed',
-    time: '09:30',
-    enabled: true,
-    days: [],
-    icon: 'coffee',
-    actions: { presetIds: ['shake'], waterMl: 500, supplementIds: [] },
-    builtin: true,
-  },
+  R('morning', 'Morning shake', '10:45', '500 ml milk + 1 banana + 5 tbsp oats + ½ tbsp peanut butter + 1 tbsp each chia, alsi, sunflower & pumpkin seeds + 1 scoop ON Whey.', 'coffee', { presetIds: ['shake'] }),
+  R('water-1230', '500 ml water', '12:30', 'First water of the day. Finish the bottle.', 'droplet', { waterMl: 500 }),
+  R('lunch', 'Lunch + 500 ml water', '16:00', 'Rice bowl + chicken. Drink 500 ml water 30 min before or after.', 'salad', { presetIds: ['lunch'], waterMl: 500 }),
+  R('eggs', '2 boiled eggs + Vitamin C', '18:00', '1 whole egg + 1 egg white, and 1 Vitamin C capsule.', 'egg', { presetIds: ['eggs'], supplementIds: ['vitc'] }),
+  R('nuts', 'Nuts', '18:45', 'Half a handful: almonds, cashews, pistachios.', 'nut', { presetIds: ['nuts'] }),
+  R('water-1930', '500 ml water before 8 PM', '19:30', 'Get it in before you leave the office.', 'droplet', { waterMl: 500 }),
+  R('preworkout', 'Pre-gym: 2 dates + 1 L lime water', '21:00', '2 dates now. Mix 1 L water with 1 lime + a pinch of pink salt and sip it through the session.', 'zap', { presetIds: ['dates'], waterMl: 1000 }),
+  R('gym', 'Gym time', '22:00', "Open today's workout and get moving.", 'dumbbell', { openTab: 'train' }),
+  R('dinner', 'Dinner + creatine', '00:00', '5 g creatine with 300 ml water. Log dinner: roti chicken, rice chicken, mutton or daal. Bulking tip: add 1 extra roti or boti.', 'utensils', {
+    waterMl: 300,
+    supplementIds: ['creatine'],
+    choosePresetIds: ['dinner-roti-chicken', 'dinner-rice-chicken', 'dinner-roti-mutton', 'dinner-roti-daal'],
+  }),
+  R('checkin', 'Weekly check-in', '11:00', 'Before your shake: weigh in, then measure waist (navel), chest and bicep. Reply e.g. "w 74.2, waist 33, chest 38.6, bicep 15.1".', 'ruler', {}, { days: [0] }),
+  R('winddown', 'Wind down + Ashwagandha', '01:30', 'Ashwagandha, lights low, screens away. Sleep by 2:00 AM for 8 h before 10:30.', 'moon', { supplementIds: ['ashwa'] }),
   {
     id: 'hydration',
     title: 'Hydration check',
     body: 'Sip 200–250 ml water.',
     kind: 'interval',
-    start: '11:00',
-    end: '21:00',
+    start: '13:00',
+    end: '20:00',
     every: 90,
-    enabled: true,
+    enabled: false, // your routine already has fixed water times
     days: [],
     icon: 'droplet',
     dynamic: 'water',
     actions: { presetIds: [], waterMl: 250, supplementIds: [] },
-    builtin: true,
-  },
-  {
-    id: 'lunch',
-    title: 'Lunch time',
-    body: 'Plate method: lean protein + veggies + 1 carb source.',
-    kind: 'fixed',
-    time: '16:00',
-    enabled: true,
-    days: [],
-    icon: 'salad',
-    actions: { presetIds: ['lunch'], waterMl: 0, supplementIds: [] },
-    builtin: true,
-  },
-  {
-    id: 'snack',
-    title: 'Evening snack',
-    body: '2 whole eggs + 6–8 almonds.',
-    kind: 'fixed',
-    time: '19:00',
-    enabled: true,
-    days: [],
-    icon: 'egg',
-    actions: { presetIds: ['eggs-almonds'], waterMl: 0, supplementIds: [] },
-    builtin: true,
-  },
-  {
-    id: 'preworkout',
-    title: 'Pre-workout fuel',
-    body: '2 dates + 250 ml water with a pinch of salt. Caffeine-free.',
-    kind: 'fixed',
-    time: '21:30',
-    enabled: true,
-    days: [],
-    icon: 'zap',
-    actions: { presetIds: ['dates'], waterMl: 250, supplementIds: [] },
-    builtin: true,
-  },
-  {
-    id: 'gym',
-    title: 'Gym time',
-    body: 'Workout starts now. Open today’s session and get moving.',
-    kind: 'fixed',
-    time: '22:00',
-    enabled: true,
-    days: [],
-    icon: 'dumbbell',
-    actions: { presetIds: [], waterMl: 0, supplementIds: [], openTab: 'train' },
-    builtin: true,
-  },
-  {
-    id: 'postworkout',
-    title: 'Post-workout dinner + creatine',
-    body: 'Dinner + 5 g creatine monohydrate with 300 ml water.',
-    kind: 'fixed',
-    time: '00:45',
-    enabled: true,
-    days: [],
-    icon: 'utensils',
-    actions: { presetIds: ['dinner'], waterMl: 300, supplementIds: ['creatine'] },
-    builtin: true,
-  },
-  {
-    id: 'winddown',
-    title: 'Wind down',
-    body: 'Lights low, screens dim. Optional ashwagandha capsule. Sleep by 2:00 AM.',
-    kind: 'fixed',
-    time: '01:30',
-    enabled: true,
-    days: [],
-    icon: 'moon',
-    actions: { presetIds: [], waterMl: 0, supplementIds: ['ashwa'] },
     builtin: true,
   },
 ];
@@ -229,6 +172,49 @@ const LIB = {
   goblet: ex('Goblet Squat', 3, 10, 12, 90, { inc: 2 }),
   pushup: ex('Push-Up', 3, 10, 20, 60, { bw: true }),
   carry: ex("Farmer's Carry", 3, 30, 45, 60, { unit: 'sec', inc: 2, note: 'Hold DBs for time' }),
+  // ---- plan v2: 6-day push/pull/legs ----
+  benchH: ex('Barbell Bench Press', 4, 6, 8, 120),
+  inclineH: ex('Incline DB Press', 3, 8, 10, 90, { inc: 2 }),
+  dips: ex('Chest Dips', 3, 8, 12, 90, { bw: true, note: 'Lean forward; add weight once 12 is easy' }),
+  flyLow: ex('Low-to-High Cable Fly', 3, 12, 15, 60, { note: 'Upper chest' }),
+  cgbp: ex('Close-Grip Bench Press', 3, 6, 8, 90),
+  pushdownH: ex('Triceps Rope Pushdown', 3, 10, 12, 60),
+  ohextH: ex('Overhead Triceps Extension', 3, 10, 12, 60),
+  pulldownH: ex('Lat Pulldown', 4, 6, 10, 120),
+  rowH: ex('Barbell Row', 4, 6, 8, 120),
+  cablerowH: ex('Seated Cable Row', 3, 8, 12, 90),
+  straightArm: ex('Straight-Arm Pulldown', 3, 12, 15, 60),
+  ezCurl: ex('EZ-Bar Curl', 3, 6, 10, 90),
+  inclineCurl: ex('Incline DB Curl', 3, 8, 12, 60, { inc: 1 }),
+  hammerH: ex('Hammer Curl', 3, 10, 12, 60, { inc: 2 }),
+  squatH: ex('Barbell Back Squat', 4, 5, 8, 120, { inc: 5 }),
+  rdlH: ex('Romanian Deadlift', 3, 6, 10, 120, { inc: 5 }),
+  legpressH: ex('Leg Press', 3, 10, 12, 90, { inc: 10 }),
+  legcurlH: ex('Lying Leg Curl', 3, 10, 12, 60),
+  calfH: ex('Standing Calf Raise', 3, 10, 15, 60),
+  dbPress: ex('Seated DB Shoulder Press', 4, 6, 10, 90, { inc: 2 }),
+  lateralH: ex('DB Lateral Raise', 4, 12, 20, 60, { inc: 1 }),
+  facepullH: ex('Face Pull', 3, 12, 15, 60),
+  inclineBB: ex('Incline Barbell Press', 4, 8, 10, 120),
+  flatDB: ex('Flat DB Press', 3, 10, 12, 90, { inc: 2 }),
+  pecDeck: ex('Pec Deck / Machine Fly', 3, 12, 15, 60),
+  pushupV: ex('Push-Up (to failure)', 2, 10, 25, 60, { bw: true }),
+  skull: ex('EZ-Bar Skull Crusher', 3, 8, 12, 90),
+  singlePush: ex('Single-Arm Cable Pushdown', 3, 12, 15, 60, { inc: 1 }),
+  pulldownWide: ex('Wide-Grip Lat Pulldown', 4, 10, 12, 90),
+  csRow: ex('Chest-Supported DB Row', 3, 10, 12, 90, { inc: 2 }),
+  oneArmRow: ex('Single-Arm DB Row', 3, 10, 12, 90, { inc: 2, note: 'Reps per arm' }),
+  preacher: ex('EZ-Bar Preacher Curl', 3, 10, 12, 60),
+  cableCurl: ex('Cable Curl', 3, 12, 15, 60, { inc: 1 }),
+  ropeHammer: ex('Rope Hammer Curl', 2, 12, 15, 60, { inc: 1 }),
+  ohpStanding: ex('Standing Overhead Press', 4, 6, 8, 120),
+  cableLateral: ex('Cable Lateral Raise', 3, 12, 15, 60, { inc: 1 }),
+  rearDelt: ex('Rear Delt Fly', 3, 15, 20, 60, { inc: 1 }),
+  splitV: ex('Bulgarian Split Squat', 3, 8, 12, 90, { inc: 2, note: 'Reps per leg' }),
+  hack: ex('Hack Squat', 3, 10, 12, 90, { inc: 5 }),
+  legextV: ex('Leg Extension', 3, 12, 15, 60),
+  seatedCurl: ex('Seated Leg Curl', 3, 12, 15, 60),
+  seatedCalf: ex('Seated Calf Raise', 3, 12, 20, 60),
 };
 
 const day = (id, name, focus, exercises, type = 'workout', note = '') => ({
@@ -243,6 +229,19 @@ const rest = (id, name = 'Rest / Active Recovery') =>
   day(id, name, '8,000–10,000 steps + light mobility', [], 'rest', 'Walk, stretch, foam roll. No lifting.');
 
 export const PROGRAM_TEMPLATES = {
+  6: {
+    label: '6-day Push/Pull/Legs',
+    mode: 'weekly', // each day is tied to a weekday (0 = Sun)
+    days: [
+      { ...day('ppl-ct-a', 'Chest & Triceps: Heavy', 'Chest 4 + triceps 3', [LIB.benchH, LIB.inclineH, LIB.dips, LIB.flyLow, LIB.cgbp, LIB.pushdownH, LIB.ohextH]), weekday: 1 },
+      { ...day('ppl-bb-a', 'Back & Biceps: Heavy', 'Back 4 + biceps 3', [LIB.pulldownH, LIB.rowH, LIB.cablerowH, LIB.straightArm, LIB.ezCurl, LIB.inclineCurl, LIB.hammerH]), weekday: 2 },
+      { ...day('ppl-sl-a', 'Shoulders & Legs: Heavy', 'Legs 5 + shoulders 3', [LIB.squatH, LIB.rdlH, LIB.legpressH, LIB.legcurlH, LIB.calfH, LIB.dbPress, LIB.lateralH, LIB.facepullH]), weekday: 3 },
+      { ...day('ppl-ct-b', 'Chest & Triceps: Volume', 'Chest 4 + triceps 2', [LIB.inclineBB, LIB.flatDB, LIB.pecDeck, LIB.pushupV, LIB.skull, LIB.singlePush]), weekday: 4 },
+      { ...day('ppl-bb-b', 'Back & Biceps: Volume', 'Back 4 + biceps 3', [LIB.pulldownWide, LIB.csRow, LIB.oneArmRow, LIB.facepullH, LIB.preacher, LIB.cableCurl, LIB.ropeHammer]), weekday: 5 },
+      { ...day('ppl-sl-b', 'Shoulders & Legs: Volume', 'Shoulders 3 + legs 5', [LIB.ohpStanding, LIB.cableLateral, LIB.rearDelt, LIB.splitV, LIB.hack, LIB.legextV, LIB.seatedCurl, LIB.seatedCalf]), weekday: 6 },
+      { ...rest('ppl-rest', 'Rest Day'), focus: 'Walk 8,000 steps, eat your surplus, sleep 8 h', weekday: 0 },
+    ],
+  },
   3: {
     label: '3-day Full Body',
     days: [
@@ -281,8 +280,49 @@ export const PROGRAM_TEMPLATES = {
 
 export const cloneProgram = (size) => {
   const t = PROGRAM_TEMPLATES[size];
-  return { template: size, label: t.label, days: JSON.parse(JSON.stringify(t.days)) };
+  return { template: size, label: t.label, mode: t.mode || 'rotation', days: JSON.parse(JSON.stringify(t.days)) };
 };
+
+// ---------- Plan v2 for existing installs ----------
+const OLD_PRESET_IDS = ['shake', 'eggs-almonds', 'dates', 'lunch', 'dinner'];
+const cm = (inches) => Math.round(inches * 2.54 * 100) / 100;
+
+/**
+ * Moves an existing install onto plan v2: new goal, targets, meals, reminders, supplements and
+ * the weekday split. Keeps every log, workout session, body entry and any custom presets/reminders.
+ */
+export function applyPlanV2(d, todayKey) {
+  d.profile = { ...d.profile, ...DEFAULT_PROFILE, weightKg: d.profile.weightKg || 74, age: d.profile.age || 31 };
+  d.targets = { ...d.targets, ...DEFAULT_TARGETS };
+  d.settings = { ...d.settings, measureUnit: d.settings.measureUnit || 'in' };
+
+  const supps = [...d.supplements];
+  for (const s of DEFAULT_SUPPLEMENTS) {
+    const i = supps.findIndex((x) => x.id === s.id);
+    if (i >= 0) supps[i] = { ...supps[i], dose: s.dose };
+    else supps.push({ ...s });
+  }
+  const order = DEFAULT_SUPPLEMENTS.map((s) => s.id);
+  d.supplements = supps.sort((a, b) => (order.indexOf(a.id) + 1 || 99) - (order.indexOf(b.id) + 1 || 99));
+
+  const custom = d.presets.filter((p) => !OLD_PRESET_IDS.includes(p.id) && !DEFAULT_PRESETS.some((x) => x.id === p.id));
+  d.presets = [...DEFAULT_PRESETS.map((p) => ({ ...p })), ...custom];
+
+  const customRem = d.reminders.filter((r) => !r.builtin);
+  d.reminders = [...JSON.parse(JSON.stringify(DEFAULT_REMINDERS)), ...customRem];
+
+  if (!d.activeSession) d.program = cloneProgram(6);
+
+  if (todayKey && !d.body.some((b) => b.chest || b.arm)) {
+    const i = d.body.findIndex((b) => b.date === todayKey);
+    const entry = { date: todayKey, weight: 74, chest: cm(38.5), arm: cm(15) };
+    if (i >= 0) d.body[i] = { ...d.body[i], ...entry, weight: d.body[i].weight ?? 74 };
+    else d.body.push(entry);
+    d.body.sort((a, b) => (a.date < b.date ? -1 : 1));
+  }
+  d.meta = { ...d.meta, plan: PLAN_VERSION, planAppliedAt: Date.now() };
+  return d;
+}
 
 export const makeDefaultState = () => ({
   version: 1,
@@ -292,10 +332,10 @@ export const makeDefaultState = () => ({
   supplements: DEFAULT_SUPPLEMENTS.map((s) => ({ ...s })),
   presets: DEFAULT_PRESETS.map((p) => ({ ...p })),
   reminders: JSON.parse(JSON.stringify(DEFAULT_REMINDERS)),
-  program: cloneProgram(4),
+  program: cloneProgram(6),
   sessions: [],
   activeSession: null,
   days: {},
   body: [],
-  meta: { snoozes: [], lastBackup: null, createdAt: Date.now() },
+  meta: { snoozes: [], lastBackup: null, createdAt: Date.now(), plan: PLAN_VERSION },
 });

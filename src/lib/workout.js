@@ -62,6 +62,30 @@ export const fmtSet = (st, ex) => {
   return Number(st.w) ? `${+st.w}×${r}` : r;
 };
 
+/** One session exercise, pre-filled from your last performance and the overload hint. */
+export function buildExercise(ex, sessions) {
+  const last = lastPerformance(sessions, ex);
+  const hint = overloadHint(ex, last);
+  return {
+    exId: ex.id,
+    name: ex.name,
+    unit: ex.unit || 'reps',
+    bw: !!ex.bw,
+    repMin: ex.repMin,
+    repMax: ex.repMax,
+    rest: ex.rest,
+    inc: ex.inc,
+    planned: ex.sets,
+    note: ex.note || '',
+    sets: Array.from({ length: ex.sets }, (_, i) => {
+      const prev = last?.sets[i] || last?.sets[last.sets.length - 1];
+      const w = hint.kind === 'up' && hint.weight ? hint.weight : prev?.w ?? '';
+      const target = !prev ? ex.repMin : hint.kind === 'up' && !ex.bw ? ex.repMin : Math.min(Number(prev.r) + 1, ex.repMax + (ex.bw ? 3 : 0));
+      return { w: ex.bw && !Number(w) ? '' : w, r: '', target, done: false };
+    }),
+  };
+}
+
 /** Build a fresh session from a program day, pre-filled with last weights and target reps. */
 export function buildSession(day, sessions, dateKey) {
   return {
@@ -72,29 +96,36 @@ export function buildSession(day, sessions, dateKey) {
     startedAt: Date.now(),
     finishedAt: null,
     rest: false,
-    exercises: day.exercises.map((ex) => {
-      const last = lastPerformance(sessions, ex);
-      const hint = overloadHint(ex, last);
-      return {
-        exId: ex.id,
-        name: ex.name,
-        unit: ex.unit,
-        bw: ex.bw,
-        repMin: ex.repMin,
-        repMax: ex.repMax,
-        rest: ex.rest,
-        inc: ex.inc,
-        planned: ex.sets,
-        note: ex.note || '',
-        sets: Array.from({ length: ex.sets }, (_, i) => {
-          const prev = last?.sets[i] || last?.sets[last.sets.length - 1];
-          const w = hint.kind === 'up' && hint.weight ? hint.weight : prev?.w ?? '';
-          const target = !prev ? ex.repMin : hint.kind === 'up' && !ex.bw ? ex.repMin : Math.min(Number(prev.r) + 1, ex.repMax + (ex.bw ? 3 : 0));
-          return { w: ex.bw && !Number(w) ? '' : w, r: '', target, done: false };
-        }),
-      };
-    }),
+    exercises: day.exercises.map((ex) => buildExercise(ex, sessions)),
   };
+}
+
+/** A finished session with every planned set logged at its target ("log as planned"). */
+export function plannedSession(day, sessions, dateKey, finishedAt = Date.now(), onlyExIds) {
+  const s = buildSession(day, sessions, dateKey);
+  s.id = `q-${uid()}`;
+  s.startedAt = finishedAt - 75 * 60e3;
+  s.finishedAt = finishedAt;
+  s.quick = true;
+  s.exercises = s.exercises
+    .filter((e) => !onlyExIds || onlyExIds.includes(e.exId))
+    .map((e) => ({ ...e, sets: e.sets.map((x) => ({ ...x, r: x.target, done: true })) }));
+  return s;
+}
+
+/** Every exercise you might want to add or swap in: your plan, all templates and your history. */
+export function exerciseLibrary(program, templates, sessions) {
+  const map = new Map();
+  const add = (ex) => {
+    const k = ex.name.trim().toLowerCase();
+    if (!map.has(k)) map.set(k, ex);
+  };
+  for (const d of program.days) for (const ex of d.exercises) add(ex);
+  for (const t of Object.values(templates)) for (const d of t.days) for (const ex of d.exercises) add(ex);
+  for (const s of sessions)
+    for (const e of s.exercises || [])
+      add({ id: e.exId, name: e.name, sets: e.planned || e.sets.length || 3, repMin: e.repMin ?? 8, repMax: e.repMax ?? 12, rest: e.rest ?? 90, inc: e.inc ?? 2.5, unit: e.unit || 'reps', bw: !!e.bw, note: e.note || '' });
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function sessionStats(session) {
@@ -109,10 +140,19 @@ export function sessionStats(session) {
   return { sets, volume: Math.round(volume) };
 }
 
-/** Next day in the rotation after the most recently finished session. */
-export function nextDayIndex(program, sessions) {
+/**
+ * Which program day is "up next".
+ * - weekly programs: the day assigned to today's weekday (logical day, so 1 AM still counts as yesterday)
+ * - rotation programs: the day after the most recently finished session
+ */
+export function nextDayIndex(program, sessions, todayKey) {
   const days = program.days;
   if (!days.length) return -1;
+  if (program.mode === 'weekly') {
+    const [y, m, d] = (todayKey || '').split('-').map(Number);
+    const wd = todayKey ? new Date(y, m - 1, d).getDay() : new Date().getDay();
+    return days.findIndex((x) => x.weekday === wd);
+  }
   for (let i = sessions.length - 1; i >= 0; i--) {
     const idx = days.findIndex((d) => d.id === sessions[i].dayId);
     if (idx >= 0) return (idx + 1) % days.length;

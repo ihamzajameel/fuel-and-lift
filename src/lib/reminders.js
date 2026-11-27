@@ -90,6 +90,7 @@ export function isOccurrenceDone(rem, occ, state) {
   if (a.presetIds?.length && (day.foods || []).some((f) => a.presetIds.includes(f.presetId))) return true;
   if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((s) => day.supps?.[s])) return true;
   if (a.openTab === 'train' && state.sessions.some((s) => s.date === occ.dayKey && !s.rest)) return true;
+  if (a.choosePresetIds?.length && !a.supplementIds?.length && (day.foods || []).some((f) => a.choosePresetIds.includes(f.presetId))) return true;
   return false;
 }
 

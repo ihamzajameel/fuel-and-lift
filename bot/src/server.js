@@ -58,10 +58,11 @@ const st = () => db().state;
 const currentDay = (now = Date.now()) => logicalNow(now, st().tz, st().dayStartHour ?? 4).day;
 const appUrl = () => st()?.appUrl || 'https://fit.fineradesk.com/';
 
-function remindersActionsEvents(rem, day, okey, waterOverride) {
+function remindersActionsEvents(rem, day, okey, waterOverride, chosenPresetId) {
   const a = rem.actions || {};
   const out = [];
   for (const id of a.presetIds || []) out.push(addEvent('preset', { presetId: id }, day));
+  if (chosenPresetId) out.push(addEvent('preset', { presetId: chosenPresetId }, day));
   const ml = waterOverride ?? a.waterMl;
   if (ml) out.push(addEvent('water', { ml: Number(ml) }, day));
   for (const id of a.supplementIds || []) out.push(addEvent('supp', { id, value: true }, day));
@@ -93,9 +94,14 @@ async function sendReminder(rem, okey, snoozed = false) {
     if (s.nextWorkout) body += `\n\nToday: <b>${esc(s.nextWorkout)}</b>`;
     rows.push([{ text: '🏋️ Open workout', url: `${appUrl()}?go=train` }]);
   } else {
+    const choices = (rem.actions?.choosePresetIds || []).map((id) => (s.presets || []).find((p) => p.id === id)).filter(Boolean);
+    const btns = choices
+      .map((p) => ({ text: `🍽️ ${p.name.replace(/^Dinner:\s*/, '')}`, callback_data: `c|${p.id}|${okey}` }))
+      .filter((b) => fits(b.callback_data));
+    for (let i = 0; i < btns.length; i += 2) rows.push(btns.slice(i, i + 2));
     const parts = describeActions(rem, s);
     const data = `l|${okey}`;
-    if (parts.length && fits(data)) rows.push([{ text: `✅ Log ${parts.join(' + ')}`.slice(0, 64), callback_data: data }]);
+    if (parts.length && fits(data)) rows.push([{ text: `✅ ${choices.length ? 'Only ' : 'Log '}${parts.join(' + ')}`.slice(0, 64), callback_data: data }]);
   }
   if (rem.id === 'winddown' || rem.icon === 'moon') {
     body += `\n\n${shortStatus(v, t)}`;
@@ -201,12 +207,23 @@ async function onText(msg, text) {
   const day = currentDay();
   const parsed = [];
   const unknown = [];
+  const choices = [];
   for (const part of splitParts(text)) {
     const r = parsePart(part, s);
-    if (r) parsed.push(r);
+    if (r?.type === 'choose') choices.push(r);
+    else if (r) parsed.push(r);
     else unknown.push(part);
   }
+  for (const c of choices) {
+    const btns = c.data.presetIds
+      .map((id) => (s.presets || []).find((p) => p.id === id))
+      .filter(Boolean)
+      .map((p) => ({ text: `${p.name} · ${p.kcal} kcal`, callback_data: `p|${p.id}` }))
+      .filter((b) => fits(b.callback_data));
+    await send(`🍽️ ${esc(c.label)}`, kb(btns.map((b) => [b])));
+  }
   if (!parsed.length) {
+    if (choices.length) return;
     return send(`🤔 I didn't get “${esc(text)}”.\n\n${HELP}`, kb(quickRows()));
   }
   const events = parsed.map((r) => addEvent(r.type, r.data, day));
@@ -266,6 +283,32 @@ async function onCallback(cq) {
     remindersActionsEvents(rem, day, okey, ml);
     const v = todayView(d, Date.now());
     await markMessage(`✅ <i>Logged at ${time}</i>\n${esc(shortStatus(v, d.state.targets || {}))}`);
+    return answer('Logged ✅');
+  }
+  if (kind === 'p') {
+    const p = (d.state.presets || []).find((x) => x.id === rest[0]);
+    if (!p) return answer('That meal no longer exists');
+    const ev = addEvent('preset', { presetId: p.id }, currentDay());
+    const v = todayView(d, Date.now());
+    await tg('editMessageText', {
+      chat_id: d.pair.chatId,
+      message_id: cq.message.message_id,
+      text: `✅ <b>Logged</b>\n🍽️ ${esc(p.name)} (${p.kcal} kcal, ${p.p} g P)\n\n${esc(shortStatus(v, d.state.targets || {}))}`,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Undo', callback_data: `u|${ev.id}` }]] },
+    }).catch(() => {});
+    return answer('Logged ✅');
+  }
+  if (kind === 'c') {
+    const presetId = rest.shift();
+    const okey = rest.join('|');
+    const [remId, day] = okey.split('@');
+    const rem = (d.state.reminders || []).find((r) => r.id === remId);
+    const p = (d.state.presets || []).find((x) => x.id === presetId);
+    if (!rem || !p) return answer('No longer available');
+    remindersActionsEvents(rem, day, okey, undefined, presetId);
+    const v = todayView(d, Date.now());
+    await markMessage(`✅ <i>Logged ${esc(p.name)} + ${esc(describeActions(rem, d.state).join(' + '))} at ${time}</i>\n${esc(shortStatus(v, d.state.targets || {}))}`);
     return answer('Logged ✅');
   }
   if (kind === 'u') {

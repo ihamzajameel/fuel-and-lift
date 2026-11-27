@@ -92,3 +92,38 @@ test('water pace is front-loaded', () => {
   assert.equal(waterPace(rel('21:00'), state.targets), 2240);
   assert.equal(waterPace(rel('01:00'), state.targets), 2800);
 });
+
+test('plan v2 replies: inches, gym done, vit c, dinner choice', () => {
+  const st = {
+    ...state,
+    measureUnit: 'in',
+    nextWorkout: 'Chest & Triceps: Heavy',
+    supplements: [...state.supplements, { id: 'vitc', name: 'Vitamin C' }],
+    presets: [
+      ...state.presets.filter((p) => !['dinner', 'lunch'].includes(p.id)),
+      { id: 'lunch2', name: 'Lunch: Rice Bowl + Chicken Leg', kcal: 650, p: 33, c: 75, f: 20 },
+      { id: 'drc', name: 'Dinner: Roti + Chicken', kcal: 470, p: 33, c: 48, f: 16 },
+      { id: 'dric', name: 'Dinner: Rice + Chicken', kcal: 500, p: 31, c: 62, f: 14 },
+      { id: 'drm', name: 'Dinner: Roti + Mutton', kcal: 540, p: 27, c: 46, f: 27 },
+      { id: 'drd', name: 'Dinner: Roti + Daal (dal)', kcal: 480, p: 18, c: 74, f: 12 },
+    ],
+  };
+  const p = (s) => parsePart(s, st);
+  assert.deepEqual(p('chest 38.5').data, { chest: 97.79 });
+  assert.deepEqual(p('bicep 15').data, { arm: 38.1 });
+  assert.deepEqual(p('waist 33').data, { waist: 83.82 });
+  assert.deepEqual(p('waist 84 cm').data, { waist: 84 });
+  assert.equal(p('gym done').type, 'workout');
+  assert.equal(p('workout').type, 'workout');
+  assert.equal(p('vit c').data.id, 'vitc');
+  assert.equal(p('creatine').data.id, 'creatine');
+  assert.equal(p('mutton').data.presetId, 'drm');
+  assert.equal(p('daal').data.presetId, 'drd');
+  assert.equal(p('dal').data.presetId, 'drd');
+  assert.equal(p('roti chicken').data.presetId, 'drc');
+  assert.equal(p('dinner').type, 'choose');
+  assert.equal(p('dinner').data.presetIds.length, 4);
+  assert.equal(p('rice chicken').type, 'choose'); // lunch bowl vs dinner rice: ask
+  assert.equal(p('lunch').data.presetId, 'lunch2');
+  assert.equal(p('chicken rice 550 kcal 45p').type, 'food');
+});

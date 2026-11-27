@@ -18,12 +18,15 @@ import {
   Trophy,
   Weight,
   X,
+  Repeat,
+  Minus,
+  CheckCheck,
 } from 'lucide-react';
 import { isBarbell, platesPerSide, warmupRamp } from '../lib/coach';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Field, IconButton, NumInput, ScreenHeader, Segmented, Sheet, TextInput, Toggle, cx, fmtNum } from '../components/ui';
-import { buildSession, bestScore, fmtSet, lastPerformance, nextDayIndex, overloadHint, rangeText, sessionStats, setScore } from '../lib/workout';
+import { buildExercise, buildSession, bestScore, exerciseLibrary, fmtSet, lastPerformance, nextDayIndex, overloadHint, plannedSession, rangeText, sessionStats, setScore } from '../lib/workout';
 import { PROGRAM_TEMPLATES, cloneProgram } from '../lib/defaults';
 import { addDays, fmtDay, fmtDuration, fmtShortDate, fmtTime, uid } from '../lib/time';
 import { useTicker, useWakeLock } from '../lib/hooks';
@@ -41,8 +44,12 @@ function ProgramView() {
   const [editing, setEditing] = useState(false);
   const [exSheet, setExSheet] = useState(null); // day id
   const [openDay, setOpenDay] = useState(null);
+  const [quick, setQuick] = useState(null); // program day to log as planned
   const days = state.program.days;
-  const nextIdx = nextDayIndex(state.program, state.sessions);
+  const nextIdx = nextDayIndex(state.program, state.sessions, today);
+  const weekly = state.program.mode === 'weekly';
+  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayLabel = (d, i) => (weekly ? (d.weekday != null ? WD[d.weekday].toUpperCase() : 'UNSCHEDULED') : `DAY ${i + 1}`);
   const weekAgo = addDays(today, -6);
   const doneThisWeek = state.sessions.filter((s) => !s.rest && s.date >= weekAgo).length;
   const plannedPerWeek = days.filter((d) => d.type !== 'rest').length;
@@ -138,13 +145,15 @@ function ProgramView() {
                 { value: '3', label: '3 days' },
                 { value: '4', label: '4 days' },
                 { value: '5', label: '5 days' },
+                { value: '6', label: '6 PPL' },
               ]}
             />
-            <p className="mt-2 text-xs text-faint">Loads a ready-made split. Then rename, reorder, add or remove anything below.</p>
+            <p className="mt-2 text-xs text-faint">Loads a ready-made split. 6 PPL follows the weekday (Mon–Sat); the others rotate. Then rename, reorder, add or remove anything below.</p>
           </Card>
         )}
 
-        {days.map((day, i) => {
+        {(weekly && !editing && nextIdx > 0 ? [...days.keys()].slice(nextIdx).concat([...days.keys()].slice(0, nextIdx)) : [...days.keys()]).map((i) => {
+          const day = days[i];
           const isNext = i === nextIdx && !editing;
           const last = lastDone(day.id);
           const rest = day.type === 'rest';
@@ -153,7 +162,7 @@ function ProgramView() {
             return (
               <Card key={day.id} className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className="tnum w-12 shrink-0 text-xs font-semibold text-muted">DAY {i + 1}</span>
+                  <span className="tnum w-12 shrink-0 text-xs font-semibold text-muted">{dayLabel(day, i)}</span>
                   <TextInput value={day.name} onChange={(e) => editDay(i, { name: e.target.value })} aria-label="Day name" className="!h-11 font-semibold" />
                 </div>
                 <TextInput value={day.focus} onChange={(e) => editDay(i, { focus: e.target.value })} placeholder="Focus (e.g. Push / pull)" className="!h-10 text-sm" />
@@ -168,6 +177,21 @@ function ProgramView() {
                       { value: 'rest', label: 'Rest' },
                     ]}
                   />
+                  {weekly && (
+                    <select
+                      value={day.weekday ?? ''}
+                      onChange={(e) => editDay(i, { weekday: e.target.value === '' ? null : Number(e.target.value) })}
+                      aria-label="Weekday"
+                      className="h-9 rounded-lg border border-line bg-surface-2 px-2 text-sm text-fg"
+                    >
+                      <option value="">No day</option>
+                      {WD.map((w, n) => (
+                        <option key={w} value={n}>
+                          {w}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <div className="ml-auto flex">
                     <IconButton icon={ArrowUp} label="Move up" onClick={() => moveDay(i, -1)} disabled={i === 0} className="disabled:opacity-30" />
                     <IconButton icon={ArrowDown} label="Move down" onClick={() => moveDay(i, 1)} disabled={i === days.length - 1} className="disabled:opacity-30" />
@@ -186,8 +210,8 @@ function ProgramView() {
               <button type="button" onClick={() => setOpenDay(expanded ? null : day.id)} className="flex w-full items-start justify-between gap-3 text-left" aria-expanded={expanded}>
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-xs font-semibold text-muted">
-                    DAY {i + 1}
-                    {isNext && <span className="rounded-full bg-lift/15 px-2 py-0.5 text-[11px] text-lift">UP NEXT</span>}
+                    {dayLabel(day, i)}
+                    {isNext && <span className="rounded-full bg-lift/15 px-2 py-0.5 text-[11px] text-lift">{weekly ? 'TODAY' : 'UP NEXT'}</span>}
                   </p>
                   <p className="mt-0.5 text-lg leading-tight font-semibold">{day.name}</p>
                   <p className="text-sm text-muted">{rest ? day.focus : `${day.exercises.length} exercises · ${day.focus}`}</p>
@@ -210,9 +234,14 @@ function ProgramView() {
               {rest ? (
                 <RestDayAction day={day} onDone={finishRest} doneToday={last?.date === today} />
               ) : (
-                <Button variant={isNext ? 'lift' : 'soft'} size={isNext ? 'lg' : 'md'} icon={Play} className="mt-3 w-full" onClick={() => start(day)}>
-                  Start {isNext ? 'workout' : 'this day'}
-                </Button>
+                <div className="mt-3 flex gap-2">
+                  <Button variant={isNext ? 'lift' : 'soft'} size={isNext ? 'lg' : 'md'} icon={Play} className="flex-1" onClick={() => start(day)}>
+                    Start {isNext ? 'workout' : 'this day'}
+                  </Button>
+                  <Button variant="soft" size={isNext ? 'lg' : 'md'} icon={CheckCheck} onClick={() => setQuick(day)} aria-label={`Quick log ${day.name}`}>
+                    Quick log
+                  </Button>
+                </div>
               )}
             </Card>
           );
@@ -226,7 +255,80 @@ function ProgramView() {
         {!editing && state.sessions.some((s) => !s.rest) && <RecentSessions />}
       </div>
       <ExerciseEditor dayId={exSheet} onClose={() => setExSheet(null)} />
+      <QuickLogSheet day={quick} onClose={() => setQuick(null)} />
     </>
+  );
+}
+
+/** Record a workout without tracking each set: every planned set at its target, editable per exercise. */
+function QuickLogSheet({ day, onClose }) {
+  const { state, mutate, today } = useStore();
+  const { toast } = useApp();
+  const [date, setDate] = useState(today);
+  const [skip, setSkip] = useState({});
+  const [lastId, setLastId] = useState(null);
+  if (day && day.id !== lastId) {
+    setLastId(day.id);
+    setDate(today);
+    setSkip({});
+  }
+  if (!day && lastId) setLastId(null);
+  if (!day) return null;
+  const preview = plannedSession(day, state.sessions, date);
+  const save = () => {
+    const keep = preview.exercises.filter((e) => !skip[e.exId]).map((e) => e.exId);
+    if (!keep.length) return;
+    const [y, m, d] = date.split('-').map(Number);
+    const [gh, gm] = (state.profile.gymTime || '22:00').split(':').map(Number);
+    const fin = date === today ? Date.now() : new Date(y, m - 1, d, gh, gm).getTime() + 75 * 60e3;
+    const session = plannedSession(day, state.sessions, date, fin, keep);
+    mutate((dr) => {
+      dr.sessions.push(session);
+      dr.sessions.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.finishedAt || 0) - (b.finishedAt || 0)));
+    });
+    const st = sessionStats(session);
+    toast(`Logged ${day.name} · ${st.sets} sets`, { label: 'Undo', run: () => mutate((dr) => void (dr.sessions = dr.sessions.filter((x) => x.id !== session.id))) });
+    onClose();
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={`Quick log: ${day.name}`}
+      footer={
+        <Button variant="primary" size="lg" className="w-full" icon={CheckCheck} onClick={save}>
+          Save workout
+        </Button>
+      }
+    >
+      <Field label="Date">
+        <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value || today)} className="h-12 w-full rounded-xl border border-line bg-surface-2 px-3 text-fg" />
+      </Field>
+      <p className="mt-3 mb-2 text-sm text-muted">Logs every set at the planned weight and target reps. Untick anything you skipped; fine-tune later by starting the day instead.</p>
+      <ul className="divide-y divide-line/60 rounded-xl border border-line">
+        {preview.exercises.map((e) => {
+          const off = !!skip[e.exId];
+          const w = e.sets[0]?.w;
+          return (
+            <li key={e.exId}>
+              <button type="button" onClick={() => setSkip({ ...skip, [e.exId]: !off })} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left" aria-pressed={!off}>
+                <span className={cx('grid h-6 w-6 shrink-0 place-items-center rounded-md border-2', off ? 'border-line' : 'border-accent bg-accent text-on-accent')}>
+                  {!off && <Check size={14} strokeWidth={3} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={cx('block truncate font-medium', off && 'text-muted line-through')}>{e.name}</span>
+                  <span className="tnum block text-xs text-muted">
+                    {e.sets.length} × {e.sets[0]?.r}
+                    {e.unit === 'sec' ? 's' : ''}
+                    {Number(w) ? ` @ ${w} kg` : e.bw ? ' · bodyweight' : ' · no weight logged yet'}
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </Sheet>
   );
 }
 
@@ -416,6 +518,8 @@ function SessionView() {
   const { toast, startRest, stopRest } = useApp();
   const s = state.activeSession;
   const [newEx, setNewEx] = useState('');
+  const [swap, setSwap] = useState(null); // exercise index
+  const library = useMemo(() => exerciseLibrary(state.program, PROGRAM_TEMPLATES, state.sessions), [state.program, state.sessions]);
   const [plates, setPlates] = useState(null); // { name, weight }
 
   // History-based context per exercise (computed once per session start / history change).
@@ -462,6 +566,37 @@ function SessionView() {
       const prev = sets[sets.length - 1];
       sets.push({ w: prev?.w ?? '', r: '', target: prev?.target ?? '', done: false });
     });
+  const adjustWeight = (ei, dir) =>
+    mutate((d) => {
+      const e = d.activeSession.exercises[ei];
+      const step = Number(e.inc) || Number(state.settings.weightStep) || 2.5;
+      for (const x of e.sets) if (!x.done && x.w !== '' && x.w != null) x.w = Math.max(0, Math.round((Number(x.w) + dir * step) * 100) / 100);
+    });
+  const completeAll = (ei) => {
+    const e = s.exercises[ei];
+    mutate((d) => {
+      let lastW = '';
+      for (const x of d.activeSession.exercises[ei].sets) {
+        if (x.w !== '' && x.w != null) lastW = x.w;
+        else if (!x.done && lastW !== '') x.w = lastW; // carry the weight you typed on earlier sets
+        if (!x.done) Object.assign(x, { done: true, r: x.r === '' ? x.target : x.r });
+      }
+    });
+    const nextEx = s.exercises.slice(ei + 1).find((x) => x.sets.some((y) => !y.done));
+    if (nextEx && state.settings.autoRest) startRest(Number(e.rest) || 90, `${nextEx.name} · set 1`);
+  };
+  const swapExercise = (ei, lib) => {
+    const fresh = buildExercise(lib, state.sessions);
+    mutate((d) => {
+      const list = d.activeSession.exercises;
+      const done = list[ei].sets.filter((x) => x.done);
+      if (done.length) {
+        list[ei].sets = done;
+        list.splice(ei + 1, 0, fresh);
+      } else list[ei] = fresh;
+    });
+    setSwap(null);
+  };
   const removeSet = (ei, si) =>
     mutate((d) => {
       d.activeSession.exercises[ei].sets.splice(si, 1);
@@ -475,8 +610,12 @@ function SessionView() {
   const addExercise = () => {
     const name = newEx.trim();
     if (!name) return;
+    const lib = library.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    const fresh = lib
+      ? buildExercise(lib, state.sessions)
+      : { exId: `ex-${uid()}`, name, unit: 'reps', bw: false, repMin: 8, repMax: 12, rest: 90, inc: 2.5, planned: 3, note: '', sets: Array.from({ length: 3 }, () => ({ w: '', r: '', target: 10, done: false })) };
     mutate((d) => {
-      d.activeSession.exercises.push({ exId: `ex-${uid()}`, name, unit: 'reps', bw: false, repMin: 8, repMax: 12, rest: 90, inc: 2.5, planned: 3, note: '', sets: Array.from({ length: 3 }, () => ({ w: '', r: '', target: 10, done: false })) });
+      d.activeSession.exercises.push(fresh);
     });
     setNewEx('');
   };
@@ -583,6 +722,28 @@ function SessionView() {
                 </div>
               )}
 
+              {/* One-tap tools */}
+              {!allDone && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {!e.bw && (
+                    <>
+                      <button type="button" onClick={() => adjustWeight(ei, -1)} className="press tnum inline-flex h-9 items-center gap-1 rounded-lg bg-surface-2 px-2.5 text-sm font-semibold" aria-label="Lower weight on remaining sets">
+                        <Minus size={14} /> {Number(e.inc) || 2.5}
+                      </button>
+                      <button type="button" onClick={() => adjustWeight(ei, 1)} className="press tnum inline-flex h-9 items-center gap-1 rounded-lg bg-surface-2 px-2.5 text-sm font-semibold" aria-label="Raise weight on remaining sets">
+                        <Plus size={14} /> {Number(e.inc) || 2.5}
+                      </button>
+                    </>
+                  )}
+                  <button type="button" onClick={() => setSwap(ei)} className="press inline-flex h-9 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 text-sm font-semibold">
+                    <Repeat size={14} /> Swap
+                  </button>
+                  <button type="button" onClick={() => completeAll(ei)} className="press ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent/15 px-3 text-sm font-semibold text-fg">
+                    <CheckCheck size={16} className="text-accent" /> All sets
+                  </button>
+                </div>
+              )}
+
               {/* Sets */}
               <div className="mt-3">
                 <div className="grid grid-cols-[28px_1fr_72px_64px_44px] items-center gap-2 px-0.5 pb-1 text-[11px] font-semibold tracking-wide text-faint">
@@ -649,7 +810,12 @@ function SessionView() {
 
         <Card title="Add exercise" icon={Dumbbell}>
           <div className="flex gap-2">
-            <TextInput value={newEx} onChange={(e) => setNewEx(e.target.value)} placeholder="e.g. Machine chest press" onKeyDown={(e) => e.key === 'Enter' && addExercise()} />
+            <TextInput list="exercise-library" value={newEx} onChange={(e) => setNewEx(e.target.value)} placeholder="Start typing, e.g. Pec deck" onKeyDown={(e) => e.key === 'Enter' && addExercise()} />
+            <datalist id="exercise-library">
+              {library.map((x) => (
+                <option key={x.name} value={x.name} />
+              ))}
+            </datalist>
             <Button icon={Plus} onClick={addExercise} aria-label="Add exercise" />
           </div>
           <p className="mt-2 text-xs text-faint">Added for this session only. Edit the plan to keep it.</p>
@@ -665,7 +831,58 @@ function SessionView() {
         </div>
       </div>
       <PlateSheet value={plates} onClose={() => setPlates(null)} />
+      <SwapSheet open={swap != null} current={swap != null ? s.exercises[swap]?.name : ''} library={library} onPick={(lib) => swapExercise(swap, lib)} onClose={() => setSwap(null)} />
     </>
+  );
+}
+
+function SwapSheet({ open, current, library, onPick, onClose }) {
+  const [q, setQ] = useState('');
+  if (!open) return null;
+  const query = q.trim().toLowerCase();
+  const list = library.filter((x) => x.name !== current && (!query || x.name.toLowerCase().includes(query))).slice(0, 40);
+  const close = () => {
+    setQ('');
+    onClose();
+  };
+  return (
+    <Sheet open onClose={close} title={`Swap ${current}`}>
+      <TextInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search exercises" autoFocus />
+      <ul className="mt-3 divide-y divide-line/60 rounded-xl border border-line">
+        {list.map((x) => (
+          <li key={x.name}>
+            <button
+              type="button"
+              onClick={() => {
+                setQ('');
+                onPick(x);
+              }}
+              className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-surface-2"
+            >
+              <span className="font-medium">{x.name}</span>
+              <span className="tnum shrink-0 text-xs text-muted">
+                {x.sets} × {rangeText(x)}
+              </span>
+            </button>
+          </li>
+        ))}
+        {query && !library.some((x) => x.name.toLowerCase() === query) && (
+          <li>
+            <button
+              type="button"
+              onClick={() => {
+                setQ('');
+                onPick({ id: `ex-${uid()}`, name: q.trim(), sets: 3, repMin: 8, repMax: 12, rest: 90, inc: 2.5, unit: 'reps', bw: false, note: '' });
+              }}
+              className="flex min-h-12 w-full items-center gap-2 px-3 py-2 text-left font-medium text-accent"
+            >
+              <Plus size={16} /> Use “{q.trim()}”
+            </button>
+          </li>
+        )}
+      </ul>
+      <p className="mt-2 text-xs text-faint">Sets you've already done stay under the old exercise.</p>
+    </Sheet>
   );
 }
 

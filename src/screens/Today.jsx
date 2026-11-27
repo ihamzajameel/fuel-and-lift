@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Bell, BellRing, Check, ChevronRight, Droplet, Dumbbell, Flame, Pill, Plus, Undo2, Utensils, CalendarClock, Footprints, Lightbulb, Minus, MoonStar, TriangleAlert, CircleCheck, Info } from 'lucide-react';
+import { Bell, BellRing, Check, ChevronRight, Droplet, Dumbbell, Flame, Pill, Plus, Undo2, Utensils, CalendarClock, Footprints, Lightbulb, ListChecks, Minus, MoonStar, TriangleAlert, CircleCheck, Info } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Dot, NumInput, ProgressBar, Ring, ScreenHeader, TONES, cx, fmtNum } from '../components/ui';
 import FoodSheet from '../components/FoodSheet';
+import UsualDaySheet from '../components/UsualDaySheet';
 import { reminderIcon } from '../components/chrome';
 import { dayTotals, fmtL, paceStatus, waterPaceTarget } from '../lib/nutrition';
 import { dayTimeline, describeActions, isOccurrenceDone } from '../lib/reminders';
@@ -76,6 +77,7 @@ export default function Today() {
         }
       />
       <div className="space-y-3 px-3 pt-3">
+        {state.meta.planNotice && <PlanNotice />}
         {gymFirst && <WorkoutCard />}
         <EnergyCard tot={tot} />
         <WaterCard tot={tot} />
@@ -326,6 +328,7 @@ function PlanCard() {
 function QuickLog({ onCustom }) {
   const { state, mutate, today } = useStore();
   const { toast } = useApp();
+  const [usual, setUsual] = useState(false);
   const foods = state.days[today]?.foods || [];
 
   const log = (p) => {
@@ -336,6 +339,10 @@ function QuickLog({ onCustom }) {
 
   return (
     <Card title="Quick log" icon={Utensils}>
+      <Button variant="primary" size="lg" className="mb-3 w-full" icon={ListChecks} onClick={() => setUsual(true)}>
+        Log my usual day
+      </Button>
+      <UsualDaySheet open={usual} onClose={() => setUsual(false)} />
       <div className="grid grid-cols-2 gap-2">
         {state.presets.map((p) => {
           const count = foods.filter((f) => f.presetId === p.id).length;
@@ -417,7 +424,8 @@ function WorkoutCard() {
   const { go, toast } = useApp();
   const active = state.activeSession;
   const doneToday = [...state.sessions].reverse().find((s) => s.date === today);
-  const idx = nextDayIndex(state.program, state.sessions);
+  const idx = nextDayIndex(state.program, state.sessions, today);
+  const weekly = state.program.mode === 'weekly';
   const next = state.program.days[idx];
 
   let body;
@@ -451,7 +459,7 @@ function WorkoutCard() {
     body = (
       <>
         <p className="text-sm text-muted">
-          Up next · Day {dayNo} · {fmt12(state.profile.gymTime)}
+          {weekly ? 'Today' : `Up next · Day ${dayNo}`} · {fmt12(state.profile.gymTime)}
         </p>
         <p className="text-lg font-semibold">{next.name}</p>
         <p className="text-sm text-muted">{next.type === 'rest' ? next.focus : `${next.exercises.length} exercises · ${next.focus}`}</p>
@@ -576,5 +584,38 @@ function CoachTip() {
         </div>
       </div>
     </button>
+  );
+}
+
+function PlanNotice() {
+  const { state, mutate } = useStore();
+  const { go } = useApp();
+  const t = state.targets;
+  return (
+    <section className="anim-fade rounded-2xl border border-accent/40 bg-accent/10 p-4">
+      <p className="font-semibold">Your plan is updated: lean bulk to {state.profile.targetWeight} kg</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
+        <li>
+          Targets: <b className="tnum text-fg">{fmtNum(t.kcal)} kcal · {t.p} g protein</b> (small surplus for about +0.25 kg/week while your waist stays put)
+        </li>
+        <li>Your real day: shake 10:45 AM, water 12:30 PM, lunch 4 PM, eggs + Vitamin C 6 PM, nuts, dates + lime water 9 PM, dinner + creatine at midnight</li>
+        <li>Mon–Sat Chest/Triceps, Back/Biceps, Shoulders/Legs, twice a week. Sunday off with a weekly check-in</li>
+        <li>Chest and bicep tracking in inches. Measure your waist this Sunday as a baseline</li>
+      </ul>
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" variant="primary" onClick={() => mutate((d) => (d.meta.planNotice = false))}>
+          Got it
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            sessionStorage.setItem('fuel-lift:ptab', 'body');
+            go('progress');
+          }}
+        >
+          See goals
+        </Button>
+      </div>
+    </section>
   );
 }

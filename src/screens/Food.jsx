@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Droplet, History, Pencil, Plus, Star, Trash2, UtensilsCrossed } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Droplet, History, ListChecks, Pencil, Plus, Star, Trash2, UtensilsCrossed } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Dot, Empty, IconButton, ProgressBar, ScreenHeader, TONES, fmtNum } from '../components/ui';
 import FoodSheet from '../components/FoodSheet';
+import UsualDaySheet from '../components/UsualDaySheet';
 import { dayTotals, fmtL, portionLabel } from '../lib/nutrition';
 import { addDays, fmtDay, fmtTime, uid } from '../lib/time';
 import * as ops from '../lib/ops';
@@ -13,6 +14,7 @@ export default function Food() {
   const { toast } = useApp();
   const [date, setDate] = useState(today);
   const [sheet, setSheet] = useState(null); // { mode, initial }
+  const [usual, setUsual] = useState(false);
   const day = state.days[date];
   const tot = dayTotals(day);
   const t = state.targets;
@@ -88,6 +90,9 @@ export default function Food() {
 
         {/* Quick add */}
         <Card title="Quick add" icon={Star}>
+          <Button variant="primary" className="mb-3 w-full" icon={ListChecks} onClick={() => setUsual(true)}>
+            Log my usual day{date !== today ? ` (${fmtDay(date, today)})` : ''}
+          </Button>
           <div className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4">
             {state.presets.map((p) => (
               <Chip key={p.id} onClick={() => logPreset(p)} className="!h-10">
@@ -190,6 +195,7 @@ export default function Food() {
           </ul>
         </Card>
       </div>
+      <UsualDaySheet open={usual} onClose={() => setUsual(false)} dateKey={date} />
       <FoodSheet open={!!sheet} onClose={() => setSheet(null)} mode={sheet?.mode} initial={sheet?.initial} dateKey={date} />
     </>
   );

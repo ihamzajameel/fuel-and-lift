@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as ops from './ops';
 import { dayTotals } from './nutrition';
-import { nextDayIndex } from './workout';
+import { nextDayIndex, plannedSession } from './workout';
 
 export const DEFAULT_BOT_URL = import.meta.env.VITE_BOT_URL || 'https://bot-production-7ba0497f.up.railway.app';
 
@@ -58,13 +58,15 @@ export function startPairing(url) {
 /** What the bot needs: your plan and today's progress. No history, no body data. */
 export function buildSnapshot(state, today) {
   const day = state.days[today] || {};
-  const next = state.program.days[nextDayIndex(state.program, state.sessions)];
+  const next = state.program.days[nextDayIndex(state.program, state.sessions, today)];
   const doneToday = [...state.sessions].reverse().find((s) => s.date === today && !s.rest);
   const tg = state.meta.tg || {};
   return {
     v: 1,
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     dayStartHour: state.settings.dayStartHour,
+    measureUnit: state.settings.measureUnit || 'in',
+    goalType: state.profile.goalType,
     appUrl: location.origin + location.pathname,
     tgReminders: tg.reminders !== false,
     lastEventId: tg.lastEventId || 0,
@@ -140,8 +142,22 @@ function applyOne(d, e, byId) {
       ops.markDone(d, day, x.okey, true);
       break;
     case 'body':
-      ops.upsertBody(d, { date: day, weight: x.weight ?? '', waist: x.waist ?? '' });
+      ops.upsertBody(d, { date: day, weight: x.weight ?? '', waist: x.waist ?? '', chest: x.chest ?? '', arm: x.arm ?? '' });
       break;
+    case 'workout': {
+      // "gym done" from Telegram: record the day's planned workout as done (unless one is already logged).
+      if (d.sessions.some((s) => s.date === day && !s.rest)) break;
+      const pd = d.program.days[nextDayIndex(d.program, d.sessions, day)];
+      if (!pd) break;
+      if (pd.type === 'rest') {
+        d.sessions.push({ id, dayId: pd.id, dayName: pd.name, date: day, rest: true, startedAt: e.at, finishedAt: e.at, exercises: [] });
+        break;
+      }
+      const s = plannedSession(pd, d.sessions, day, e.at);
+      s.id = id;
+      d.sessions.push(s);
+      break;
+    }
     case 'sleep':
       ops.setSleep(d, day, { ...(d.days[day]?.sleep || {}), hours: Number(x.hours) });
       break;
@@ -158,6 +174,7 @@ function applyOne(d, e, byId) {
       else if (ref.type === 'done') ops.markDone(d, ref.day, ref.data.okey, false);
       else if (ref.type === 'sleep') ops.setSleep(d, ref.day, null);
       else if (ref.type === 'steps') ops.setSteps(d, ref.day, null);
+      else if (ref.type === 'workout') d.sessions = d.sessions.filter((s) => s.id !== rid);
       break;
     }
     default:
