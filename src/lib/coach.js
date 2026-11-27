@@ -55,7 +55,7 @@ export function dailyScore(state, key) {
     { id: 'creatine', label: 'Creatine taken', ok: !!day?.supps?.creatine, w: 10 },
     { id: 'sleep', label: `Slept ≥ ${t.sleepHours - 0.5} h`, ok: (day?.sleep?.hours || 0) >= t.sleepHours - 0.5, w: 10 },
   ];
-  const logged = !!day && (tot.kcal > 0 || tot.water > 0 || Object.values(day.supps || {}).some(Boolean) || trained || day.sleep || day.steps);
+  const logged = !!day && (tot.kcal > 0 || tot.water > 0 || !!day.supps?.creatine || trained || day.sleep || day.steps);
   return { score: items.reduce((a, i) => a + (i.ok ? i.w : 0), 0), items, logged };
 }
 

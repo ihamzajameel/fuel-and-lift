@@ -62,7 +62,7 @@ export function buildSnapshot(state, today) {
   const doneToday = [...state.sessions].reverse().find((s) => s.date === today && !s.rest);
   const tg = state.meta.tg || {};
   return {
-    v: 1,
+    v: 2, // app build understands: stock packSize/since, missed, removeFood-safe undo
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     dayStartHour: state.settings.dayStartHour,
     measureUnit: state.settings.measureUnit || 'in',
@@ -136,7 +136,11 @@ function applyOne(d, e, byId) {
     }
     case 'stock': {
       const s = d.supplements.find((y) => y.id === x.id);
-      if (s) s.stock = Math.max(0, x.mode === 'set' ? Number(x.count) : (Number(s.stock) || 0) + Number(x.count));
+      if (s) {
+        if (x.count != null) s.stock = Math.max(0, x.mode === 'set' ? Number(x.count) : (Number(s.stock) || 0) + Number(x.count));
+        if (x.packSize) s.packSize = Number(x.packSize);
+        if (x.since) s.since = x.since;
+      }
       break;
     }
     case 'food':

@@ -426,7 +426,9 @@ function SupplementsCard() {
                     <>
                       {' · '}
                       <span className={Number(s.stock) <= 0 ? 'font-semibold text-danger' : Number(s.stock) <= (s.lowAt ?? 5) ? 'font-semibold text-warn' : ''}>
-                        {Number(s.stock) <= 0 ? 'out of stock' : `${s.stock} ${s.stockUnit || 'left'}${Number(s.stock) <= (s.lowAt ?? 5) ? ', restock' : ''}`}
+                        {Number(s.stock) <= 0
+                          ? 'out of stock'
+                          : `${s.stock} ${s.stockUnit || 'left'} · until ${new Date(Date.now() + (Number(s.stock) / (Number(s.perDose) || 1)) * 86400e3).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${Number(s.stock) <= (s.lowAt ?? 5) ? ', restock' : ''}`}
                       </span>
                     </>
                   )}

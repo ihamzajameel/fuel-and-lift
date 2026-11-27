@@ -311,8 +311,8 @@ function SettingsMain() {
                     className="!h-10 min-w-0 flex-1 text-sm"
                     aria-label={`${x.name} stock unit`}
                   />
-                  <Button size="sm" onClick={() => mutate((d) => (d.supplements[i].stock = (Number(d.supplements[i].stock) || 0) + 30))}>
-                    +30
+                  <Button size="sm" onClick={() => mutate((d) => (d.supplements[i].stock = (Number(d.supplements[i].stock) || 0) + (Number(x.packSize) || 30)))}>
+                    +{Number(x.packSize) || 30}
                   </Button>
                 </div>
               </div>
