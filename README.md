@@ -38,6 +38,9 @@ https://bot-production-7ba0497f.up.railway.app
 - Pairing: More → Reminders → **Connect Telegram** → tap Start in Telegram. The app keeps a random device key (not included in JSON backups); the bot stores only its hash and only talks to the paired chat.
 - Data on the bot: your plan, today's totals and recent Telegram logs, in `/data/fuel-lift.json` on a Railway volume. No history, body measurements or workouts are sent to it.
 
+- **Meal photos**: send a photo in Telegram (caption optional, e.g. `3 roti`) or tap **Photo** on the Food screen. Claude Opus 5.5 estimates the items and macros (structured JSON); tap **Log it / ½ / 1.5× / 2×**, or reply to the estimate to correct it. Needs `ANTHROPIC_API_KEY` on the bot service. Roughly 2–4 cents per photo.
+- **Supplement stock**: set capsules/scoops in More → Supplements (or `stock vit c 30`, `bought creatine 60`). Each tick uses one; reminders warn at 5 left and say when it's out.
+
 Setup (one time): create a bot with @BotFather and add its token as `TELEGRAM_BOT_TOKEN` in Railway (fuel-lift → bot → Variables). Optional: `OWNER_USERNAME` (your Telegram @username) locks pairing to you.
 
 Deploy bot changes: `cd bot && railway up . --path-as-root --service bot --detach`. Tests: `cd bot && npm test`.

@@ -14,6 +14,7 @@ const empty = () => ({
   sent: {}, // key -> { at, msgId, html, okey }
   snoozes: [], // { remId, okey, at }
   tgOffset: 0,
+  photos: {}, // pending photo estimates: id -> { fileId, hint, est, at, msgId }
   bot: null, // { username }
 });
 
@@ -57,6 +58,7 @@ export function prune(now = Date.now()) {
   db.events = db.events.filter((e) => e.id > applied || now - e.at < 3 * 86400e3).slice(-3000);
   for (const [k, v] of Object.entries(db.sent)) if (now - v.at > 3 * 86400e3) delete db.sent[k];
   db.snoozes = db.snoozes.filter((z) => now - z.at < 86400e3);
+  for (const [k, v] of Object.entries(db.photos || {})) if (now - v.at > 86400e3) delete db.photos[k];
 }
 
 export const dataFile = FILE;

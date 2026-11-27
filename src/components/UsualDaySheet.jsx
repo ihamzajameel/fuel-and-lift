@@ -28,7 +28,9 @@ function buildPlan(state, dateKey, now) {
     if (a.waterMl) items.push({ key: `${o.okey}|w`, kind: 'water', ml: Number(a.waterMl), label: `${a.waterMl} ml water`, sub: 'Water', kcal: 0, logged: !!day.done?.[o.okey] });
     for (const sid of a.supplementIds || []) {
       const s = state.supplements.find((x) => x.id === sid);
-      if (s) items.push({ key: `${o.okey}|s|${sid}`, kind: 'supp', supp: s, label: s.name, sub: s.dose, kcal: 0, logged: !!day.supps?.[sid] });
+      if (!s) continue;
+      const out = s.stock != null && s.stock !== '' && Number(s.stock) <= 0;
+      items.push({ key: `${o.okey}|s|${sid}`, kind: 'supp', supp: s, label: s.name, sub: out ? 'Out of stock' : s.dose, kcal: 0, logged: !!day.supps?.[sid], out });
     }
     const choices = (a.choosePresetIds || []).map(presetById).filter(Boolean);
     if (!items.length && !choices.length) continue;
@@ -49,7 +51,7 @@ export default function UsualDaySheet({ open, onClose, dateKey }) {
   const [dinner, setDinner] = useState(null);
   const defaults = useMemo(() => {
     const m = {};
-    for (const g of groups) for (const it of g.items) m[it.key] = !it.logged && (g.past || isPastDay);
+    for (const g of groups) for (const it of g.items) m[it.key] = !it.logged && !it.out && (g.past || isPastDay);
     return m;
   }, [groups, isPastDay]);
   const selected = sel || defaults;

@@ -15,7 +15,7 @@ const r1 = (n) => Math.round(n * 10) / 10;
  * mode: 'log' (new entry, optionally pre-filled from a preset/recent food and scalable),
  *       'edit' (existing log entry), 'preset' (create/edit a quick-log preset)
  */
-export default function FoodSheet({ open, onClose, mode = 'log', initial, dateKey }) {
+export default function FoodSheet({ open, onClose, mode = 'log', initial, dateKey, estimate }) {
   const { state, mutate } = useStore();
   const { toast } = useApp();
   const [f, setF] = useState(blank);
@@ -120,6 +120,20 @@ export default function FoodSheet({ open, onClose, mode = 'log', initial, dateKe
       }
     >
       <div className="space-y-4">
+        {estimate && (
+          <div className="rounded-xl border border-water/30 bg-water/10 p-3 text-sm">
+            <p className="font-semibold">📸 Estimated from your photo · {estimate.confidence} confidence</p>
+            <ul className="mt-1.5 space-y-0.5 text-muted">
+              {estimate.items.map((i, n) => (
+                <li key={n} className="tnum">
+                  {i.name}, {i.portion}: {i.kcal} kcal · {i.protein_g}P · {i.carbs_g}C · {i.fat_g}F
+                </li>
+              ))}
+            </ul>
+            {estimate.tip && <p className="mt-1.5 text-muted">💡 {estimate.tip}</p>}
+            <p className="mt-1.5 text-xs text-faint">Adjust the portion or numbers below if it's off, then log.</p>
+          </div>
+        )}
         <Field label="Food name">
           <TextInput
             value={f.name}

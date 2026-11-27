@@ -78,7 +78,7 @@ export function ReminderBanner() {
   const rem = state.reminders.find((r) => r.id === b.id);
   if (!rem) return null;
   const Icon = reminderIcon(rem.icon);
-  const parts = describeActions(rem, state.presets).map((p) => (rem.dynamic === 'water' && /ml water/.test(p) ? `${b.ask || 250} ml water` : p));
+  const parts = describeActions(rem, state.presets, state.supplements).map((p) => (rem.dynamic === 'water' && /ml water/.test(p) ? `${b.ask || 250} ml water` : p));
   const opensTrain = rem.actions?.openTab === 'train';
   return (
     <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-40 px-3">

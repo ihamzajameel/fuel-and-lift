@@ -94,7 +94,7 @@ export function isOccurrenceDone(rem, occ, state) {
   return false;
 }
 
-export const describeActions = (rem, presets) => {
+export const describeActions = (rem, presets, supplements) => {
   const a = rem.actions || {};
   const parts = [];
   for (const id of a.presetIds || []) {
@@ -102,6 +102,10 @@ export const describeActions = (rem, presets) => {
     if (p) parts.push(p.name);
   }
   if (a.waterMl) parts.push(`${a.waterMl} ml water`);
-  for (const id of a.supplementIds || []) parts.push(id === 'creatine' ? 'creatine' : id === 'ashwa' ? 'ashwagandha' : id);
+  for (const id of a.supplementIds || []) {
+    const s = supplements?.find((x) => x.id === id);
+    if (s && s.stock != null && s.stock !== '' && Number(s.stock) <= 0) continue;
+    parts.push(s ? s.name : id);
+  }
   return parts;
 };

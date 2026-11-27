@@ -18,9 +18,11 @@ import {
   shortStatus,
   splitParts,
   statusText,
+  stockNotes,
   todayView,
   waterPace,
 } from './logic.js';
+import { estimateMeal, visionEnabled } from './vision.js';
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const PORT = Number(process.env.PORT) || 8787;
@@ -58,14 +60,24 @@ const st = () => db().state;
 const currentDay = (now = Date.now()) => logicalNow(now, st().tz, st().dayStartHour ?? 4).day;
 const appUrl = () => st()?.appUrl || 'https://fit.fineradesk.com/';
 
+/** Preset events carry the meal's numbers so the app can log them even if that preset changed. */
+function presetEvent(presetId, day) {
+  const p = (st()?.presets || []).find((x) => x.id === presetId);
+  return addEvent('preset', p ? { presetId, name: p.name, kcal: p.kcal, p: p.p, c: p.c, f: p.f, qty: p.qty, unit: p.unit } : { presetId }, day);
+}
+
 function remindersActionsEvents(rem, day, okey, waterOverride, chosenPresetId) {
   const a = rem.actions || {};
   const out = [];
-  for (const id of a.presetIds || []) out.push(addEvent('preset', { presetId: id }, day));
-  if (chosenPresetId) out.push(addEvent('preset', { presetId: chosenPresetId }, day));
+  for (const id of a.presetIds || []) out.push(presetEvent(id, day));
+  if (chosenPresetId) out.push(presetEvent(chosenPresetId, day));
   const ml = waterOverride ?? a.waterMl;
   if (ml) out.push(addEvent('water', { ml: Number(ml) }, day));
-  for (const id of a.supplementIds || []) out.push(addEvent('supp', { id, value: true }, day));
+  for (const id of a.supplementIds || []) {
+    const s = (st().supplements || []).find((x) => x.id === id);
+    if (s && s.stock === 0) continue;
+    out.push(addEvent('supp', { id, value: true }, day));
+  }
   out.push(addEvent('done', { okey }, day));
   return out;
 }
@@ -103,6 +115,8 @@ async function sendReminder(rem, okey, snoozed = false) {
     const data = `l|${okey}`;
     if (parts.length && fits(data)) rows.push([{ text: `✅ ${choices.length ? 'Only ' : 'Log '}${parts.join(' + ')}`.slice(0, 64), callback_data: data }]);
   }
+  const notes = stockNotes(rem, s);
+  if (notes.length) body += `\n\n${notes.map(esc).join('\n')}`;
   if (rem.id === 'winddown' || rem.icon === 'moon') {
     body += `\n\n${shortStatus(v, t)}`;
     if (!v.supps.creatine && (s.supplements || []).some((x) => x.id === 'creatine')) body += '\n⚠️ Creatine not ticked yet today.';
@@ -159,6 +173,7 @@ async function onUpdate(u) {
       return tg('sendMessage', { chat_id: msg.chat.id, text: '🔒 This is a private bot.' }).catch(() => {});
     }
     if (!d.state) return send('Open Fuel & Lift once so I can load your plan, then try again.');
+    if (msg.photo?.length || /^image\//.test(msg.document?.mime_type || '')) return onPhoto(msg);
     return onText(msg, text);
   }
   if (u.callback_query) {
@@ -195,6 +210,17 @@ async function onText(msg, text) {
   if (/^\/?(status|today|summary|stats)$/.test(t)) return send(statusText(d, Date.now()), kb(quickRows()));
   if (/^\/?undo$/.test(t)) return undoLast();
 
+  // A reply to a photo estimate refines it ("it was 3 roti")
+  if (msg.reply_to_message) {
+    const hit = Object.entries(d.photos || {}).find(([, p]) => p.msgId === msg.reply_to_message.message_id);
+    if (hit) {
+      const [pid, p] = hit;
+      delete d.photos[pid];
+      const wait = await send('🔍 Updating the estimate…');
+      return analyzePhoto({ fileId: p.fileId, hint: [p.hint, text].filter(Boolean).join('. '), msgId: wait.message_id });
+    }
+  }
+
   // "done" as a reply to a reminder
   if (msg.reply_to_message && /^(done|ok|okay|did it|yes|y|✅|👍)$/.test(t)) {
     const entry = Object.values(d.sent).find((x) => x.msgId === msg.reply_to_message.message_id && x.okey);
@@ -226,7 +252,7 @@ async function onText(msg, text) {
     if (choices.length) return;
     return send(`🤔 I didn't get “${esc(text)}”.\n\n${HELP}`, kb(quickRows()));
   }
-  const events = parsed.map((r) => addEvent(r.type, r.data, day));
+  const events = parsed.map((r) => (r.type === 'preset' ? presetEvent(r.data.presetId, day) : addEvent(r.type, r.data, day)));
   const v = todayView(d, Date.now());
   const lines = [`✅ <b>Logged</b>`, ...parsed.map((r) => esc(r.label))];
   if (unknown.length) lines.push(`\n🤔 Skipped: ${unknown.map(esc).join(', ')}`);
@@ -288,7 +314,7 @@ async function onCallback(cq) {
   if (kind === 'p') {
     const p = (d.state.presets || []).find((x) => x.id === rest[0]);
     if (!p) return answer('That meal no longer exists');
-    const ev = addEvent('preset', { presetId: p.id }, currentDay());
+    const ev = presetEvent(p.id, currentDay());
     const v = todayView(d, Date.now());
     await tg('editMessageText', {
       chat_id: d.pair.chatId,
@@ -309,6 +335,41 @@ async function onCallback(cq) {
     remindersActionsEvents(rem, day, okey, undefined, presetId);
     const v = todayView(d, Date.now());
     await markMessage(`✅ <i>Logged ${esc(p.name)} + ${esc(describeActions(rem, d.state).join(' + '))} at ${time}</i>\n${esc(shortStatus(v, d.state.targets || {}))}`);
+    return answer('Logged ✅');
+  }
+  if (kind === 'ph' || kind === 'phx') {
+    const pid = rest[0];
+    const p = (d.photos || {})[pid];
+    if (!p) return answer('This estimate has expired');
+    if (kind === 'phx') {
+      delete d.photos[pid];
+      save();
+      await tg('editMessageText', { chat_id: d.pair.chatId, message_id: cq.message.message_id, text: `${photoText(p.est, false)}\n\n✖ <i>Discarded</i>`, parse_mode: 'HTML' }).catch(() => {});
+      return answer('Discarded');
+    }
+    const mult = Number(rest[1]) || 1;
+    const t = p.est.total;
+    const preset = p.est.matched_preset_id && (d.state.presets || []).find((x) => x.id === p.est.matched_preset_id);
+    const day = currentDay();
+    const r1 = (n) => Math.round(n * 10) / 10;
+    const ev =
+      preset && mult === 1 && Math.abs(preset.kcal - t.kcal) <= preset.kcal * 0.12
+        ? presetEvent(preset.id, day)
+        : addEvent(
+            'food',
+            { name: `${p.est.meal_name}${mult !== 1 ? ` ×${mult}` : ''} 📸`, qty: mult, unit: 'serving', kcal: Math.round(t.kcal * mult), p: r1(t.protein_g * mult), c: r1(t.carbs_g * mult), f: r1(t.fat_g * mult) },
+            day
+          );
+    delete d.photos[pid];
+    save();
+    const v = todayView(d, Date.now());
+    await tg('editMessageText', {
+      chat_id: d.pair.chatId,
+      message_id: cq.message.message_id,
+      text: `${photoText(p.est, false)}\n\n✅ <i>Logged${mult !== 1 ? ` ×${mult}` : ''} at ${time}</i>\n${esc(shortStatus(v, d.state.targets || {}))}`,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Undo', callback_data: `u|${ev.id}` }]] },
+    }).catch(() => {});
     return answer('Logged ✅');
   }
   if (kind === 'u') {
@@ -335,6 +396,66 @@ async function onCallback(cq) {
     return send(statusText(d, Date.now()), kb(quickRows()));
   }
   return answer('');
+}
+
+// ---------------------------------------------------------------- meal photos
+async function downloadTelegramFile(fileId) {
+  const f = await tg('getFile', { file_id: fileId });
+  const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${f.file_path}`, { signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error('could not download the photo');
+  const buf = Buffer.from(await r.arrayBuffer());
+  const ext = (f.file_path.split('.').pop() || '').toLowerCase();
+  const mediaType = { png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[ext] || 'image/jpeg';
+  return { base64: buf.toString('base64'), mediaType, bytes: buf.length };
+}
+
+function photoText(est, footer = true) {
+  if (!est.is_food) return "🤔 That doesn't look like food. Send a photo of your meal, or type it, e.g. <code>chicken rice 550 kcal 45p</code>.";
+  const t = est.total;
+  const lines = [`📸 <b>${esc(est.meal_name)}</b> <i>(${est.confidence} confidence)</i>`];
+  for (const i of est.items) lines.push(`• ${esc(i.name)}, ${esc(i.portion)}: ${n0(i.kcal)} kcal · ${i.protein_g}P · ${i.carbs_g}C · ${i.fat_g}F`);
+  lines.push(`<b>Total: ${n0(t.kcal)} kcal · ${t.protein_g} g protein · ${t.carbs_g} g carbs · ${t.fat_g} g fat</b>`);
+  if (est.tip) lines.push(`💡 ${esc(est.tip)}`);
+  if (footer) lines.push('', '<i>Wrong? Reply to this message with a fix, e.g. "it was 3 roti".</i>');
+  return lines.join('\n');
+}
+
+async function analyzePhoto({ fileId, hint, msgId }) {
+  const d = db();
+  const chat_id = d.pair.chatId;
+  try {
+    tg('sendChatAction', { chat_id, action: 'typing' }).catch(() => {});
+    const img = await downloadTelegramFile(fileId);
+    if (img.bytes > 5 * 1024 * 1024) throw new Error('the photo is larger than 5 MB');
+    const est = await estimateMeal({ ...img, hint, presets: d.state?.presets });
+    const pid = crypto.randomBytes(4).toString('hex');
+    const rows = est.is_food
+      ? [
+          [{ text: '✅ Log it', callback_data: `ph|${pid}|1` }],
+          [
+            { text: '½ portion', callback_data: `ph|${pid}|0.5` },
+            { text: '1.5×', callback_data: `ph|${pid}|1.5` },
+            { text: '2×', callback_data: `ph|${pid}|2` },
+          ],
+          [{ text: '✖ Discard', callback_data: `phx|${pid}` }],
+        ]
+      : [];
+    if (est.is_food) d.photos[pid] = { fileId, hint, est, at: Date.now(), msgId };
+    save();
+    await tg('editMessageText', { chat_id, message_id: msgId, text: photoText(est), parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } });
+    log('photo estimate', est.total.kcal, 'kcal', JSON.stringify(est.usage));
+  } catch (e) {
+    log('photo error', e.message);
+    await tg('editMessageText', { chat_id, message_id: msgId, text: `⚠️ Couldn't analyse that photo (${esc(e.message)}). Try again, or type the meal.`, parse_mode: 'HTML' }).catch(() => {});
+  }
+}
+
+async function onPhoto(msg) {
+  if (!visionEnabled())
+    return send('📸 Photo logging needs an Anthropic API key on the bot (<code>ANTHROPIC_API_KEY</code> in Railway). Until then, type the meal, e.g. <code>chicken rice 550 kcal 45p</code>.');
+  const fileId = msg.photo?.length ? msg.photo[msg.photo.length - 1].file_id : msg.document.file_id;
+  const wait = await send('🔍 Looking at your meal…');
+  return analyzePhoto({ fileId, hint: (msg.caption || '').trim(), msgId: wait.message_id });
 }
 
 async function pollLoop() {
@@ -404,7 +525,7 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (route === 'GET /' || route === 'GET /health') return reply(req, res, 200, { ok: true, service: 'fuel-lift-bot', bot: db().bot?.username || null });
-    if (route === 'GET /api/info') return reply(req, res, 200, { bot: db().bot?.username || null, configured: !!TOKEN, paired: !!db().pair });
+    if (route === 'GET /api/info') return reply(req, res, 200, { bot: db().bot?.username || null, configured: !!TOKEN, paired: !!db().pair, vision: visionEnabled() });
 
     if (route === 'POST /api/pair') {
       const { code, key } = await readJson(req, 4096);
@@ -435,6 +556,14 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/events') {
       const after = Number(url.searchParams.get('after')) || 0;
       return reply(req, res, 200, { events: db().events.filter((e) => e.id > after).slice(0, 500) });
+    }
+    if (route === 'POST /api/estimate') {
+      if (!visionEnabled()) return reply(req, res, 503, { error: 'vision_not_configured' });
+      const { image, mediaType, hint } = await readJson(req, 7 * 1024 * 1024);
+      if (typeof image !== 'string' || !/^image\/(jpeg|png|webp)$/.test(mediaType || '')) return reply(req, res, 400, { error: 'bad_image' });
+      const est = await estimateMeal({ base64: image, mediaType, hint: String(hint || '').slice(0, 300), presets: db().state?.presets });
+      log('app photo estimate', est.total.kcal, 'kcal', JSON.stringify(est.usage));
+      return reply(req, res, 200, { estimate: est });
     }
     if (route === 'POST /api/test') {
       await send('👋 <b>Fuel & Lift test</b>\nReminders and replies are working. Try replying <code>250</code> or <code>status</code>.', kb(quickRows()));

@@ -263,7 +263,7 @@ function PlanCard() {
           const isNext = i.okey === nextKey;
           const past = i.at < now;
           const isOpen = expanded === i.okey && !i.interval;
-          const actions = describeActions(i.rem, state.presets);
+          const actions = describeActions(i.rem, state.presets, state.supplements);
           return (
             <li key={i.okey} className="relative flex gap-3">
               {idx < items.length - 1 && <span className="absolute top-10 bottom-0 left-[61px] w-px bg-line" aria-hidden />}
@@ -397,7 +397,17 @@ function SupplementsCard() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-medium">{s.name}</span>
-                <span className="block text-xs text-muted">{s.dose}</span>
+                <span className="block text-xs text-muted">
+                  {s.dose}
+                  {s.stock != null && s.stock !== '' && (
+                    <>
+                      {' · '}
+                      <span className={Number(s.stock) <= 0 ? 'font-semibold text-danger' : Number(s.stock) <= (s.lowAt ?? 5) ? 'font-semibold text-warn' : ''}>
+                        {Number(s.stock) <= 0 ? 'out of stock' : `${s.stock} ${s.stockUnit || 'left'}${Number(s.stock) <= (s.lowAt ?? 5) ? ', restock' : ''}`}
+                      </span>
+                    </>
+                  )}
+                </span>
               </span>
               <span className="flex flex-col items-end">
                 <span className="tnum flex items-center gap-1 text-sm font-semibold">

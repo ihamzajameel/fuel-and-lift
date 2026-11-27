@@ -198,6 +198,7 @@ export function describeActions(rem, state) {
   if (a.waterMl) parts.push(`${a.waterMl} ml`);
   for (const id of a.supplementIds || []) {
     const s = (state.supplements || []).find((x) => x.id === id);
+    if (s && s.stock === 0) continue; // out of stock: nothing to take
     parts.push(s ? s.name : id);
   }
   return parts;
@@ -240,6 +241,8 @@ export const HELP = [
   '<code>creatine</code>, <code>whey</code>, <code>vit c</code>, <code>ashwa</code>: tick a supplement',
   '<code>chicken rice 550 kcal 45p 60c 12f</code>: any other food',
   '<code>gym done</code>: log today\'s workout as planned',
+  '📸 Send a <b>photo of your meal</b>: I estimate it, you tap Log (a caption like <code>3 roti</code> helps)',
+  '<code>stock vit c 30</code> · <code>bought creatine 60</code>: supplement stock',
   '<code>w 74.2</code> · <code>waist 33</code> · <code>chest 38.5</code> · <code>bicep 15</code> (inches)',
   '<code>sleep 8</code> · <code>steps 9500</code>',
   'Combine with commas: <code>shake, 500, creatine</code>',
@@ -312,6 +315,18 @@ export function parsePart(part, state) {
     if (food) return { type: 'food', data: food, label: `🍽️ ${food.name}: ${food.kcal} kcal, ${food.p} g P` };
   }
 
+  // Supplement stock: "stock vit c 30" (set) / "bought creatine 60" (add)
+  if ((m = l.match(/^(stock|have|refill|refilled|bought)\s+(.+?)\s+(\d{1,4})\s*(?:capsules?|caps|scoops?|servings?|tabs?|tablets?|pills?)?$/))) {
+    const want = m[2].replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((t) => t.length >= 3);
+    const s = (state.supplements || []).find((x) => {
+      const names = [x.id.toLowerCase(), ...words(x.name)];
+      return want.some((t) => names.some((n) => n.startsWith(t) || t.startsWith(n)));
+    });
+    if (s) {
+      const mode = ['stock', 'have'].includes(m[1]) ? 'set' : 'add';
+      return { type: 'stock', data: { id: s.id, count: Number(m[3]), mode }, label: `📦 ${s.name}: ${mode === 'set' ? '' : '+'}${m[3]} ${s.stockUnit || 'in stock'}` };
+    }
+  }
   // Supplements: "creatine", "whey", "vit c", "ashwa"
   const toks = l.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   for (const s of state.supplements || []) {
@@ -368,4 +383,17 @@ export function parseFood(text) {
   if (kcal == null) kcal = Math.round(4 * (p || 0) + 4 * (c || 0) + 9 * (f || 0));
   name = name.replace(/^[-:\s]+|[-:\s]+$/g, '') || 'Quick add';
   return { name: name.charAt(0).toUpperCase() + name.slice(1), qty: 1, unit: 'serving', kcal: Math.round(kcal), p: p || 0, c: c || 0, f: f || 0 };
+}
+
+/** Low/out-of-stock lines for the supplements a reminder covers. */
+export function stockNotes(rem, state) {
+  const out = [];
+  for (const id of rem.actions?.supplementIds || []) {
+    const s = (state.supplements || []).find((x) => x.id === id);
+    if (!s || s.stock == null) continue;
+    const short = s.name.split(/\s+/)[0].toLowerCase();
+    if (s.stock <= 0) out.push(`⚠️ ${s.name} is out. Buy more, then reply "bought ${short} 30".`);
+    else if (s.stock <= (s.lowAt ?? 5)) out.push(`🛒 ${s.name}: only ${s.stock} ${s.stockUnit || 'left'}. Time to restock.`);
+  }
+  return out;
 }

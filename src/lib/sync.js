@@ -87,7 +87,7 @@ export function buildSnapshot(state, today) {
       actions,
     })),
     presets: state.presets.map(({ id, name, kcal, p, c, f, qty, unit, supplementId }) => ({ id, name, kcal, p, c, f, qty, unit, supplementId })),
-    supplements: state.supplements.map(({ id, name }) => ({ id, name })),
+    supplements: state.supplements.map(({ id, name, stock, stockUnit, lowAt }) => ({ id, name, stock: stock === '' || stock == null ? null : Number(stock), stockUnit, lowAt })),
     nextWorkout: doneToday ? `${doneToday.dayName} (done ✓)` : next ? `${next.name}${next.type === 'rest' ? ' (rest day)' : ''}` : null,
     today: {
       key: today,
@@ -130,6 +130,12 @@ function applyOne(d, e, byId) {
     case 'preset': {
       const p = d.presets.find((pr) => pr.id === x.presetId);
       if (p) ops.logPreset(d, day, p, id, e.at);
+      else if (x.name) ops.logFood(d, day, { name: x.name, qty: x.qty ?? 1, unit: x.unit || 'serving', kcal: x.kcal, p: x.p, c: x.c, f: x.f, id, at: e.at });
+      break;
+    }
+    case 'stock': {
+      const s = d.supplements.find((y) => y.id === x.id);
+      if (s) s.stock = Math.max(0, x.mode === 'set' ? Number(x.count) : (Number(s.stock) || 0) + Number(x.count));
       break;
     }
     case 'food':

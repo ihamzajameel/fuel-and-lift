@@ -281,18 +281,46 @@ function SettingsMain() {
         <Card title="Supplements" icon={Pill}>
           <div className="space-y-2">
             {state.supplements.map((x, i) => (
-              <div key={x.id} className="flex items-center gap-2">
-                <TextInput value={x.name} onChange={(e) => mutate((d) => (d.supplements[i].name = e.target.value))} className="!h-11 flex-1" aria-label="Supplement name" />
-                <TextInput value={x.dose} onChange={(e) => mutate((d) => (d.supplements[i].dose = e.target.value))} className="!h-11 w-32" aria-label="Dose" />
-                <IconButton
-                  icon={Trash2}
-                  size={17}
-                  label={`Remove ${x.name}`}
-                  className="hover:text-danger"
-                  onClick={() => confirm(`Remove ${x.name}? Past check-ins stay in your history.`) && mutate((d) => (d.supplements = d.supplements.filter((y) => y.id !== x.id)))}
-                />
+              <div key={x.id} className="space-y-2 rounded-xl border border-line p-2.5">
+                <div className="flex items-center gap-2">
+                  <TextInput value={x.name} onChange={(e) => mutate((d) => (d.supplements[i].name = e.target.value))} className="!h-11 flex-1" aria-label="Supplement name" />
+                  <TextInput value={x.dose} onChange={(e) => mutate((d) => (d.supplements[i].dose = e.target.value))} className="!h-11 w-32" aria-label="Dose" />
+                  <IconButton
+                    icon={Trash2}
+                    size={17}
+                    label={`Remove ${x.name}`}
+                    className="hover:text-danger"
+                    onClick={() => confirm(`Remove ${x.name}? Past check-ins stay in your history.`) && mutate((d) => (d.supplements = d.supplements.filter((y) => y.id !== x.id)))}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs text-muted">In stock</span>
+                  <div className="w-20">
+                    <NumInput
+                      value={x.stock ?? ''}
+                      onChange={(v) => mutate((d) => (d.supplements[i].stock = v === '' ? null : Math.max(0, Number(v))))}
+                      placeholder="–"
+                      className="!h-10"
+                      aria-label={`${x.name} stock`}
+                    />
+                  </div>
+                  <TextInput
+                    value={x.stockUnit || ''}
+                    onChange={(e) => mutate((d) => (d.supplements[i].stockUnit = e.target.value))}
+                    placeholder={x.id === 'whey' ? 'scoops' : x.id === 'creatine' ? 'servings' : 'capsules'}
+                    className="!h-10 min-w-0 flex-1 text-sm"
+                    aria-label={`${x.name} stock unit`}
+                  />
+                  <Button size="sm" onClick={() => mutate((d) => (d.supplements[i].stock = (Number(d.supplements[i].stock) || 0) + 30))}>
+                    +30
+                  </Button>
+                </div>
               </div>
             ))}
+            <p className="text-xs text-faint">
+              Set how many you have. Each tick uses one, you get a heads-up at 5 left, and reminders tell you when it's out. In Telegram: <code>stock vit c 30</code> or{' '}
+              <code>bought creatine 60</code>.
+            </p>
             <Button size="sm" icon={Plus} onClick={() => mutate((d) => d.supplements.push({ id: uid(), name: 'New supplement', dose: '' }))}>
               Add supplement
             </Button>

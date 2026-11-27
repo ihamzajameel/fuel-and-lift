@@ -33,7 +33,7 @@ export function logFood(d, key, item, at = Date.now()) {
 
 export function logPreset(d, key, preset, entryId, at) {
   const entry = logFood(d, key, { ...preset, id: entryId, presetId: preset.id, at });
-  if (preset.supplementId) ensureDay(d, key).supps[preset.supplementId] = true;
+  if (preset.supplementId) setSupp(d, key, preset.supplementId, true);
   return entry;
 }
 
@@ -51,9 +51,22 @@ export function removeWater(d, key, id) {
   day.water = day.water.filter((w) => w.id !== id);
 }
 
+/** Tick/untick a supplement. If you track stock, each tick uses one dose and an untick gives it back. */
 export function setSupp(d, key, suppId, val) {
-  ensureDay(d, key).supps[suppId] = !!val;
+  const day = ensureDay(d, key);
+  const was = !!day.supps[suppId];
+  day.supps[suppId] = !!val;
+  const s = (d.supplements || []).find((x) => x.id === suppId);
+  if (s && s.stock != null && s.stock !== '' && was !== !!val) {
+    const per = Number(s.perDose) || 1;
+    s.stock = Math.max(0, Math.round((Number(s.stock) + (val ? -per : per)) * 100) / 100);
+  }
 }
+
+export const outOfStock = (d, suppId) => {
+  const s = (d.supplements || []).find((x) => x.id === suppId);
+  return !!s && s.stock !== null && s.stock !== undefined && s.stock !== '' && Number(s.stock) <= 0;
+};
 
 export function markDone(d, key, okey, val = true) {
   const day = ensureDay(d, key);
@@ -69,7 +82,7 @@ export function runReminderActions(d, key, reminder, okey) {
     if (p) logPreset(d, key, p);
   }
   if (a.waterMl) addWater(d, key, a.waterMl);
-  for (const sid of a.supplementIds || []) setSupp(d, key, sid, true);
+  for (const sid of a.supplementIds || []) if (!outOfStock(d, sid)) setSupp(d, key, sid, true);
   if (okey) markDone(d, key, okey);
 }
 
