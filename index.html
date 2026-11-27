@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Fuel &amp; Lift</title>
+    <meta name="description" content="Personal nutrition, hydration, supplement and gym tracker." />
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Fuel & Lift" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      // Apply the saved theme before first paint to avoid a flash.
+      try {
+        var s = JSON.parse(localStorage.getItem('fuel-lift:v1') || '{}');
+        var t = (s.settings && s.settings.theme) || 'dark';
+        if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="./assets/index-ChLhvwyq.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D4phpmWn.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
