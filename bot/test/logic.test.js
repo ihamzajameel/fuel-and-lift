@@ -127,3 +127,13 @@ test('plan v2 replies: inches, gym done, vit c, dinner choice', () => {
   assert.equal(p('lunch').data.presetId, 'lunch2');
   assert.equal(p('chicken rice 550 kcal 45p').type, 'food');
 });
+
+test('missed reminders count as handled', () => {
+  const db = {
+    state: { ...state, lastEventId: 0, today: { key: '2026-11-26', totals: {}, presetIds: [], supps: {}, done: [], missed: ['morning@2026-11-26@09:30'] } },
+    events: [{ id: 1, type: 'missed', data: { okey: 'postworkout@2026-11-26@00:45' }, day: '2026-11-26', at: 0 }],
+  };
+  const v = todayView(db, at('2026-11-26T20:47:00Z'));
+  assert.equal(isDone(state.reminders[0], 'morning@2026-11-26@09:30', v), true);
+  assert.equal(isDone(state.reminders[2], 'postworkout@2026-11-26@00:45', v), true);
+});

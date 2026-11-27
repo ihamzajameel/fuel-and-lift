@@ -102,6 +102,7 @@ export function todayView(db, nowMs) {
     presetIds: new Set(snap?.presetIds || []),
     supps: { ...(snap?.supps || {}) },
     done: new Set(snap?.done || []),
+    missed: new Set(snap?.missed || []),
     trained: !!snap?.trained,
     steps: snap?.steps ?? null,
     sleep: snap?.sleep ?? null,
@@ -147,6 +148,10 @@ function applyToView(v, e, s, sign) {
       if (sign > 0) v.done.add(e.data.okey);
       else v.done.delete(e.data.okey);
       break;
+    case 'missed':
+      if (sign > 0) v.missed.add(e.data.okey);
+      else v.missed.delete(e.data.okey);
+      break;
     case 'steps':
       v.steps = sign > 0 ? e.data.steps : null;
       break;
@@ -160,7 +165,7 @@ function applyToView(v, e, s, sign) {
 }
 
 export function isDone(rem, okey, v) {
-  if (v.done.has(okey)) return true;
+  if (v.done.has(okey) || v.missed?.has(okey)) return true;
   const a = rem.actions || {};
   if (a.presetIds?.length && a.presetIds.some((id) => v.presetIds.has(id))) return true;
   if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((id) => v.supps[id])) return true;

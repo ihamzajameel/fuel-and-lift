@@ -124,6 +124,7 @@ async function sendReminder(rem, okey, snoozed = false) {
   const bottom = [
     { text: '⏰ 10 min', callback_data: `s|${okey}` },
     { text: '👍 Done', callback_data: `d|${okey}` },
+    { text: '✗ Missed', callback_data: `x|${okey}` },
   ].filter((b) => fits(b.callback_data));
   if (bottom.length) rows.push(bottom);
   const html = `${EMOJI[rem.icon] || '🔔'} <b>${esc(rem.title)}</b>${snoozed ? ' <i>(snoozed)</i>' : ''}\n${body}`;
@@ -289,7 +290,7 @@ async function onCallback(cq) {
 
   if (!d.state) return answer('Open the app once first');
 
-  if (kind === 'l' || kind === 'w' || kind === 'd' || kind === 's') {
+  if (kind === 'l' || kind === 'w' || kind === 'd' || kind === 's' || kind === 'x') {
     const ml = kind === 'w' ? Number(rest.shift()) : undefined;
     const okey = rest.join('|');
     const [remId, day] = okey.split('@');
@@ -300,6 +301,11 @@ async function onCallback(cq) {
       save();
       await markMessage(`⏰ <i>Snoozed at ${time}, back in 10 min</i>`);
       return answer('Snoozed 10 minutes');
+    }
+    if (kind === 'x') {
+      addEvent('missed', { okey }, day);
+      await markMessage(`✗ <i>Marked missed at ${time}</i>`);
+      return answer('Marked missed');
     }
     if (kind === 'd') {
       addEvent('done', { okey }, day);

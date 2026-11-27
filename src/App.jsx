@@ -7,7 +7,7 @@ import Food from './screens/Food';
 import Train from './screens/Train';
 import Progress from './screens/Progress';
 import More from './screens/More';
-import { dueBetween, isOccurrenceDone, reminderContent } from './lib/reminders';
+import { dueBetween, isOccurrenceDone, isOccurrenceMissed, reminderContent } from './lib/reminders';
 import { buzz, chime, showSystemNotification, unlockAudio } from './lib/notify';
 import * as ops from './lib/ops';
 import { dayKey, uid } from './lib/time';
@@ -96,7 +96,8 @@ function Shell() {
         if (viaTelegram && !o.test) continue;
         const rem = s.reminders.find((r) => r.id === o.id);
         if (!rem) continue;
-        if (!o.test && isOccurrenceDone(rem, { ...o, okey: o.baseKey || o.okey }, s)) continue; // already logged: stay quiet
+        const occ = { ...o, okey: o.baseKey || o.okey };
+        if (!o.test && (isOccurrenceDone(rem, occ, s) || isOccurrenceMissed(occ, s))) continue; // already handled: stay quiet
         const c = reminderContent(rem, s);
         items.push({ ...o, title: c.title, body: c.body, ask: c.ask, missed: Date.now() - o.at > 3 * 60e3 });
       }

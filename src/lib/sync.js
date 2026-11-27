@@ -95,6 +95,7 @@ export function buildSnapshot(state, today) {
       presetIds: [...new Set((day.foods || []).map((f) => f.presetId).filter(Boolean))],
       supps: day.supps || {},
       done: Object.keys(day.done || {}),
+      missed: Object.keys(day.missed || {}),
       trained: !!doneToday,
       steps: day.steps ?? null,
       sleep: day.sleep?.hours ?? null,
@@ -147,6 +148,9 @@ function applyOne(d, e, byId) {
     case 'done':
       ops.markDone(d, day, x.okey, true);
       break;
+    case 'missed':
+      ops.markMissed(d, day, x.okey, true);
+      break;
     case 'body':
       ops.upsertBody(d, { date: day, weight: x.weight ?? '', waist: x.waist ?? '', chest: x.chest ?? '', arm: x.arm ?? '' });
       break;
@@ -178,6 +182,7 @@ function applyOne(d, e, byId) {
       else if (ref.type === 'preset' || ref.type === 'food') ops.removeFood(d, ref.day, rid);
       else if (ref.type === 'supp') ops.setSupp(d, ref.day, ref.data.id, false);
       else if (ref.type === 'done') ops.markDone(d, ref.day, ref.data.okey, false);
+      else if (ref.type === 'missed') ops.markMissed(d, ref.day, ref.data.okey, false);
       else if (ref.type === 'sleep') ops.setSleep(d, ref.day, null);
       else if (ref.type === 'steps') ops.setSteps(d, ref.day, null);
       else if (ref.type === 'workout') d.sessions = d.sessions.filter((s) => s.id !== rid);

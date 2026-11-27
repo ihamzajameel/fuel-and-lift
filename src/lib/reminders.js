@@ -81,6 +81,30 @@ export function reminderContent(rem, state, nowMs = Date.now()) {
   return { title: rem.title, body: rem.body };
 }
 
+export const isOccurrenceMissed = (occ, state) => !!state.days[occ.dayKey]?.missed?.[occ.okey];
+
+/** Done / missed / open counts per routine item over the last `n` days (only days the item applies). */
+export function routineConsistency(state, todayKey, n = 30) {
+  const start = state.settings.dayStartHour;
+  const keys = Array.from({ length: n }, (_, i) => addDays(todayKey, -i - 1));
+  return state.reminders
+    .filter((r) => r.enabled && r.kind !== 'interval')
+    .map((rem) => {
+      let done = 0;
+      let missed = 0;
+      let open = 0;
+      for (const k of keys) {
+        for (const o of occurrencesForDay(rem, k, start)) {
+          if (isOccurrenceMissed(o, state)) missed++;
+          else if (isOccurrenceDone(rem, o, state)) done++;
+          else open++;
+        }
+      }
+      return { rem, done, missed, open, total: done + missed + open };
+    })
+    .filter((x) => x.total > 0);
+}
+
 /** Is this reminder occurrence already satisfied by what's been logged? */
 export function isOccurrenceDone(rem, occ, state) {
   const day = state.days[occ.dayKey];

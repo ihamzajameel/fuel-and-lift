@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bell, BellRing, Check, ChevronRight, Droplet, Dumbbell, Flame, Pill, Plus, Undo2, Utensils, CalendarClock, Footprints, Lightbulb, ListChecks, Minus, MoonStar, TriangleAlert, CircleCheck, Info } from 'lucide-react';
+import { Bell, BellRing, Check, ChevronRight, Droplet, Dumbbell, Flame, Pill, Plus, Undo2, Utensils, CalendarClock, Footprints, Lightbulb, ListChecks, Minus, MoonStar, TriangleAlert, CircleCheck, Info, X } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Dot, NumInput, ProgressBar, Ring, ScreenHeader, TONES, cx, fmtNum } from '../components/ui';
@@ -7,7 +7,7 @@ import FoodSheet from '../components/FoodSheet';
 import UsualDaySheet from '../components/UsualDaySheet';
 import { reminderIcon } from '../components/chrome';
 import { dayTotals, fmtL, paceStatus, waterPaceTarget } from '../lib/nutrition';
-import { dayTimeline, describeActions, isOccurrenceDone } from '../lib/reminders';
+import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed } from '../lib/reminders';
 import { dailyScore, insights } from '../lib/coach';
 import { currentStreak } from '../lib/stats';
 import { nextDayIndex, sessionStats } from '../lib/workout';
@@ -225,13 +225,13 @@ function PlanCard() {
         const next = slots.find((x) => x.at > now);
         out.push({ ...o, rem, interval: true, slots, next, done: !next });
       } else {
-        out.push({ ...o, rem, done: isOccurrenceDone(rem, o, state) });
+        out.push({ ...o, rem, done: isOccurrenceDone(rem, o, state), missed: isOccurrenceMissed(o, state) });
       }
     }
     return out;
   }, [state, today, start, now]);
 
-  const nextKey = items.find((i) => !i.interval && !i.done && i.at > now - 30 * 60e3)?.okey;
+  const nextKey = items.find((i) => !i.interval && !i.done && !i.missed && i.at > now - 30 * 60e3)?.okey;
   const expanded = open ?? nextKey;
 
   const act = (i) => {
@@ -271,10 +271,10 @@ function PlanCard() {
               <span
                 className={cx(
                   'z-[1] mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full border-2',
-                  i.done ? 'border-accent bg-accent text-on-accent' : isNext ? 'border-accent bg-surface text-accent' : past ? 'border-line bg-surface text-faint' : 'border-line bg-surface text-muted'
+                  i.missed ? 'border-danger/50 bg-danger/15 text-danger' : i.done ? 'border-accent bg-accent text-on-accent' : isNext ? 'border-accent bg-surface text-accent' : past ? 'border-line bg-surface text-faint' : 'border-line bg-surface text-muted'
                 )}
               >
-                {i.done ? <Check size={16} strokeWidth={3} /> : <Icon size={15} />}
+                {i.missed ? <X size={16} strokeWidth={3} /> : i.done ? <Check size={16} strokeWidth={3} /> : <Icon size={15} />}
               </span>
               <div className="min-w-0 flex-1 pb-3">
                 <button
@@ -283,7 +283,7 @@ function PlanCard() {
                   className="flex min-h-10 w-full items-center justify-between gap-2 text-left"
                   aria-expanded={isOpen}
                 >
-                  <span className={cx('font-medium leading-tight', i.done && 'text-muted line-through decoration-faint')}>
+                  <span className={cx('font-medium leading-tight', (i.done || i.missed) && 'text-muted line-through decoration-faint')}>
                     {i.rem.title}
                     {i.interval && (
                       <span className="block text-xs font-normal text-muted no-underline">
@@ -297,7 +297,7 @@ function PlanCard() {
                 {isOpen && (
                   <div className="anim-fade mt-1 rounded-xl bg-surface-2 p-3">
                     <p className="text-sm text-muted">{i.rem.body}</p>
-                    {!i.done && (
+                    {!i.done && !i.missed && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {(actions.length > 0 || i.rem.actions?.openTab) && (
                           <Button variant={i.rem.actions?.openTab ? 'lift' : 'primary'} size="sm" icon={i.rem.actions?.openTab ? Dumbbell : Check} onClick={() => act(i)}>
@@ -307,11 +307,19 @@ function PlanCard() {
                         <Button size="sm" onClick={() => mutate((d) => ops.markDone(d, today, i.okey))}>
                           Mark done
                         </Button>
+                        <Button size="sm" variant="ghost" icon={X} className="text-danger" onClick={() => mutate((d) => ops.markMissed(d, today, i.okey))}>
+                          Missed
+                        </Button>
                       </div>
                     )}
-                    {i.done && (
-                      <Button size="sm" variant="ghost" className="mt-2 -ml-2" onClick={() => mutate((d) => ops.markDone(d, today, i.okey, false))}>
-                        Undo done
+                    {(i.done || i.missed) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="mt-2 -ml-2"
+                        onClick={() => mutate((d) => (i.missed ? ops.markMissed(d, today, i.okey, false) : ops.markDone(d, today, i.okey, false)))}
+                      >
+                        {i.missed ? 'Undo missed' : 'Undo done'}
                       </Button>
                     )}
                   </div>

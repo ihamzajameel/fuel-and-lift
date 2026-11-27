@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Activity, CircleCheck, Dumbbell, Flame, Info, Moon, Ruler, Scale, Sparkles, Target, Trash2, TriangleAlert, Trophy, Footprints } from 'lucide-react';
+import { Activity, Check, ChevronLeft, ChevronRight, CircleCheck, Dumbbell, Flame, Info, ListChecks, Moon, Ruler, Scale, Sparkles, Target, Trash2, TriangleAlert, Trophy, Footprints, X } from 'lucide-react';
+import { dayTimeline, isOccurrenceDone, isOccurrenceMissed, routineConsistency } from '../lib/reminders';
+import { reminderIcon } from '../components/chrome';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Empty, Field, IconButton, NumInput, ScreenHeader, Segmented, cx, fmtNum } from '../components/ui';
@@ -8,7 +10,7 @@ import { bestStreak, currentStreak, lastNKeys, nutritionSummary, takenInLast, tr
 import { bodyTrend, dailyScore, insights } from '../lib/coach';
 import { exerciseNamesWithHistory, fmtSet, strengthHistory } from '../lib/workout';
 import { dayTotals, fromLen, lenUnit, toLen } from '../lib/nutrition';
-import { addDays, fmtDay, fmtShortDate, parseYmd } from '../lib/time';
+import { addDays, fmt12, fmtDay, fmtShortDate, parseYmd } from '../lib/time';
 import * as ops from '../lib/ops';
 
 export default function Progress() {
@@ -469,6 +471,7 @@ function HabitsTab() {
   const { state, today } = useStore();
   const keys28 = lastNKeys(today, 28);
   const [hover, setHover] = useState(null);
+  const [checkDate, setCheckDate] = useState(today);
   const scores = useMemo(() => keys28.map((k) => ({ k, ...dailyScore(state, k) })), [state, today]); // eslint-disable-line react-hooks/exhaustive-deps
   const keys30 = lastNKeys(today, 30);
   const sleeps = lastNKeys(today, 7).map((k) => state.days[k]?.sleep?.hours).filter(Boolean);
@@ -478,6 +481,8 @@ function HabitsTab() {
 
   return (
     <>
+      <DayCheck date={checkDate} setDate={setCheckDate} />
+      <RoutineConsistency />
       <Card title="Supplement streaks" icon={Flame} iconClass="text-lift">
         <div className="space-y-4">
           {state.supplements.map((s) => {
@@ -517,7 +522,11 @@ function HabitsTab() {
                 key={d.k}
                 type="button"
                 onPointerEnter={() => setHover(i)}
-                onClick={() => setHover(i)}
+                onClick={() => {
+                  setHover(i);
+                  setCheckDate(d.k);
+                  document.getElementById('day-check')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
                 onFocus={() => setHover(i)}
                 aria-label={`${fmtShortDate(d.k)}: score ${d.logged ? d.score : 'no data'}`}
                 className={cx('tnum aspect-square rounded-md text-[11px] font-semibold', hover === i && 'ring-2 ring-fg/60', d.k === today && 'outline outline-1 outline-offset-1 outline-muted')}
@@ -533,7 +542,7 @@ function HabitsTab() {
                 <b className="text-fg">{fmtDay(h.k, today)}</b> · {h.logged ? `${h.score}/100 · ${h.items.filter((x) => x.ok).map((x) => x.id).join(', ') || 'nothing hit'}` : 'no data'}
               </>
             ) : (
-              'Protein, calories, water, training/steps, creatine and sleep. Tap a day for details.'
+              'Protein, calories, water, training/steps, creatine and sleep. Tap a day to see it and mark what you missed.'
             )}
           </p>
         </div>
@@ -556,5 +565,107 @@ function HabitsTab() {
         </Card>
       </div>
     </>
+  );
+}
+
+/** Mark each routine item done or missed for any day. */
+function DayCheck({ date, setDate }) {
+  const { state, mutate, today, now } = useStore();
+  const { toast } = useApp();
+  const start = state.settings.dayStartHour;
+  const occ = dayTimeline(state.reminders, date, start).filter((o) => state.reminders.find((r) => r.id === o.id)?.kind !== 'interval');
+
+  const toggleDone = (rem, o, done) => {
+    if (done) {
+      mutate((d) => ops.markDone(d, date, o.okey, false));
+      if (isOccurrenceDone(rem, { ...o }, { ...state, days: { ...state.days, [date]: { ...state.days[date], done: {} } } }))
+        toast('Items you logged stay in Food. Remove them there to fully undo.');
+      return;
+    }
+    mutate((d) => ops.runReminderActions(d, date, rem, o.okey, Math.min(o.at, Date.now())));
+    toast(`Done: ${rem.title}`);
+  };
+
+  return (
+    <section id="day-check" className="scroll-mt-32">
+      <Card
+        title="Day check"
+        icon={ListChecks}
+        right={
+          <div className="flex items-center">
+            <IconButton icon={ChevronLeft} label="Previous day" size={18} className="!h-9 !w-9" onClick={() => setDate(addDays(date, -1))} />
+            <button type="button" onClick={() => setDate(today)} className="min-w-20 text-center text-sm font-semibold">
+              {fmtDay(date, today)}
+            </button>
+            <IconButton icon={ChevronRight} label="Next day" size={18} className="!h-9 !w-9 disabled:opacity-30" disabled={date >= today} onClick={() => setDate(addDays(date, 1))} />
+          </div>
+        }
+      >
+        <p className="-mt-1 mb-2 text-xs text-faint">✓ marks it done and logs its food, water or supplement. ✗ records it as missed. Tap again to undo.</p>
+        <ul className="divide-y divide-line/60">
+          {occ.map((o) => {
+            const rem = state.reminders.find((r) => r.id === o.id);
+            const done = isOccurrenceDone(rem, o, state);
+            const missed = isOccurrenceMissed(o, state);
+            const Icon = reminderIcon(rem.icon);
+            const future = date === today && o.at > now;
+            return (
+              <li key={o.okey} className="flex items-center gap-2.5 py-2">
+                <span className="tnum w-[58px] shrink-0 text-xs text-muted">{fmt12(o.time)}</span>
+                <Icon size={16} className="shrink-0 text-faint" aria-hidden />
+                <span className={cx('min-w-0 flex-1 truncate text-sm font-medium', (done || missed) && 'text-muted', future && 'text-faint')}>{rem.title}</span>
+                <button
+                  type="button"
+                  aria-label={`${rem.title}: done`}
+                  aria-pressed={done}
+                  onClick={() => toggleDone(rem, o, done)}
+                  className={cx('press grid h-10 w-10 shrink-0 place-items-center rounded-lg border-2', done ? 'border-accent bg-accent text-on-accent' : 'border-line text-faint hover:text-fg')}
+                >
+                  <Check size={18} strokeWidth={3} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${rem.title}: missed`}
+                  aria-pressed={missed}
+                  onClick={() => mutate((d) => ops.markMissed(d, date, o.okey, !missed))}
+                  className={cx('press grid h-10 w-10 shrink-0 place-items-center rounded-lg border-2', missed ? 'border-danger bg-danger/20 text-danger' : 'border-line text-faint hover:text-fg')}
+                >
+                  <X size={18} strokeWidth={3} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {occ.length === 0 && <p className="text-sm text-muted">No routine items on this day.</p>}
+      </Card>
+    </section>
+  );
+}
+
+function RoutineConsistency() {
+  const { state, today } = useStore();
+  const rows = useMemo(() => routineConsistency(state, today, 30), [state, today]);
+  if (!rows.some((r) => r.done || r.missed)) return null;
+  return (
+    <Card title="Routine · last 30 days" icon={Activity}>
+      <div className="space-y-3">
+        {rows.map((r) => (
+          <div key={r.rem.id}>
+            <div className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="min-w-0 truncate">{r.rem.title}</span>
+              <span className="tnum shrink-0 text-xs text-muted">
+                <b className="text-fg">{r.done}</b> ✓ · <b className="text-fg">{r.missed}</b> ✗{r.open ? ` · ${r.open} unmarked` : ''}
+              </span>
+            </div>
+            <div className="mt-1.5 flex h-2 gap-[2px]" role="img" aria-label={`${r.rem.title}: ${r.done} done, ${r.missed} missed, ${r.open} unmarked`}>
+              {r.done > 0 && <span className="rounded-full bg-good" style={{ flex: r.done }} />}
+              {r.missed > 0 && <span className="rounded-full bg-danger" style={{ flex: r.missed }} />}
+              {r.open > 0 && <span className="rounded-full bg-surface-3" style={{ flex: r.open }} />}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-faint">Green done · red missed · grey not marked. Use Day check to fill in past days.</p>
+    </Card>
   );
 }

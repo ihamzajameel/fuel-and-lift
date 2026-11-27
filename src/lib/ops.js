@@ -8,6 +8,7 @@ export const ensureDay = (d, key) => {
   day.water ||= [];
   day.supps ||= {};
   day.done ||= {};
+  day.missed ||= {};
   return day;
 };
 
@@ -70,18 +71,29 @@ export const outOfStock = (d, suppId) => {
 
 export function markDone(d, key, okey, val = true) {
   const day = ensureDay(d, key);
-  if (val) day.done[okey] = true;
-  else delete day.done[okey];
+  if (val) {
+    day.done[okey] = true;
+    delete day.missed[okey];
+  } else delete day.done[okey];
+}
+
+/** Explicitly record that a routine item was skipped (stops its reminder, counts in consistency). */
+export function markMissed(d, key, okey, val = true) {
+  const day = ensureDay(d, key);
+  if (val) {
+    day.missed[okey] = true;
+    delete day.done[okey];
+  } else delete day.missed[okey];
 }
 
 /** Run a reminder's linked quick actions (log preset, add water, tick supplements). */
-export function runReminderActions(d, key, reminder, okey) {
+export function runReminderActions(d, key, reminder, okey, at) {
   const a = reminder.actions || {};
   for (const pid of a.presetIds || []) {
     const p = d.presets.find((x) => x.id === pid);
-    if (p) logPreset(d, key, p);
+    if (p) logPreset(d, key, p, undefined, at);
   }
-  if (a.waterMl) addWater(d, key, a.waterMl);
+  if (a.waterMl) addWater(d, key, a.waterMl, uid(), at);
   for (const sid of a.supplementIds || []) if (!outOfStock(d, sid)) setSupp(d, key, sid, true);
   if (okey) markDone(d, key, okey);
 }
