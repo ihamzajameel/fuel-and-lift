@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { BellRing, CalendarPlus, ChevronLeft, Info, Plus, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { useEffect } from 'react';
+import { Bot, BellRing, CalendarPlus, ChevronLeft, ExternalLink, Info, Plus, RefreshCw, RotateCcw, Send, Trash2, Unlink } from 'lucide-react';
+import { DEFAULT_BOT_URL, applyEvents, botApi, botInfo, botStatus, startPairing } from '../lib/sync';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Field, NumInput, ScreenHeader, Segmented, Sheet, TextInput, Toggle, cx } from '../components/ui';
@@ -74,6 +76,7 @@ export default function Reminders() {
         right={<Button size="sm" variant="primary" icon={Plus} onClick={() => setEdit(newReminder())}>New</Button>}
       />
       <div className="space-y-3 px-3 pt-3">
+        <TelegramCard />
         <Card title="Notifications" icon={BellRing}>
           {perm === 'granted' ? (
             <p className="text-sm text-good">Notifications are on for this device.</p>
@@ -300,5 +303,156 @@ function ReminderSheet({ value, onClose }) {
         </div>
       </div>
     </Sheet>
+  );
+}
+
+function TelegramCard() {
+  const { state, mutate, latest } = useStore();
+  const { toast } = useApp();
+  const tg = state.meta.tg || {};
+  const [url, setUrl] = useState(tg.url || DEFAULT_BOT_URL);
+  const [phase, setPhase] = useState(tg.paired ? 'connected' : 'idle'); // idle | pairing | connected
+  const [link, setLink] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [showUrl, setShowUrl] = useState(false);
+
+  useEffect(() => {
+    if (tg.paired) setPhase('connected');
+    else if (phase === 'connected') setPhase('idle');
+  }, [tg.paired]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // While pairing, watch for the bot to confirm.
+  useEffect(() => {
+    if (phase !== 'pairing') return;
+    const id = setInterval(async () => {
+      try {
+        const s = await botStatus(url);
+        if (s.paired) {
+          mutate((d) => {
+            d.meta.tg = { ...(d.meta.tg || {}), url, paired: true, bot: s.bot, username: s.username || s.name || '', reminders: true, lastEventId: d.meta.tg?.lastEventId || 0 };
+          });
+          setPhase('connected');
+          toast('Telegram connected');
+        }
+      } catch {
+        /* keep waiting */
+      }
+    }, 2500);
+    return () => clearInterval(id);
+  }, [phase, url, mutate, toast]);
+
+  const connect = async () => {
+    setErr('');
+    setBusy(true);
+    try {
+      const info = await botInfo(url);
+      if (!info.bot) throw new Error('The bot server is up but its Telegram token isn\'t set yet.');
+      const r = await startPairing(url);
+      setLink(r.link);
+      mutate((d) => {
+        d.meta.tg = { ...(d.meta.tg || {}), url, bot: r.bot, paired: false };
+      });
+      setPhase('pairing');
+    } catch (e) {
+      setErr(e.code === 'already_paired' ? 'This bot is already connected to another device. Disconnect it there first.' : e.message === 'Failed to fetch' ? "Can't reach the bot server. Check the address and your connection." : e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncNow = async () => {
+    setBusy(true);
+    try {
+      const after = latest.current.meta.tg?.lastEventId || 0;
+      const { events } = await botApi(url, `/api/events?after=${after}`);
+      const n = events.filter((e) => e.id > after && e.type !== 'done').length;
+      if (events.length) mutate((d) => void applyEvents(d, events));
+      toast(n ? `Synced ${n} update${n > 1 ? 's' : ''}` : 'Already up to date');
+    } catch (e) {
+      toast(`Sync failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    try {
+      await botApi(url, '/api/test', { method: 'POST' });
+      toast('Test message sent to Telegram');
+    } catch (e) {
+      toast(`Couldn't send: ${e.message}`);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!confirm('Disconnect Telegram? Reminders go back to phone notifications.')) return;
+    try {
+      await botApi(url, '/api/unpair', { method: 'POST' });
+    } catch {
+      /* still disconnect locally */
+    }
+    mutate((d) => {
+      d.meta.tg = { ...(d.meta.tg || {}), paired: false };
+    });
+    setPhase('idle');
+  };
+
+  return (
+    <Card title="Telegram" icon={Bot} iconClass="text-water">
+      {phase === 'connected' ? (
+        <>
+          <p className="text-sm text-good">
+            Connected{tg.bot ? ` to @${tg.bot}` : ''}{tg.username ? ` · ${tg.username}` : ''}
+          </p>
+          <label className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-3">
+            <span>
+              <span className="block text-sm font-medium">Send reminders to Telegram</span>
+              <span className="block text-xs text-muted">Works even when this app is closed. The app's own pop-ups stay quiet to avoid double pings.</span>
+            </span>
+            <Toggle checked={tg.reminders !== false} onChange={(v) => mutate((d) => (d.meta.tg = { ...d.meta.tg, reminders: v }))} label="Reminders via Telegram" />
+          </label>
+          <p className="mt-3 text-xs leading-relaxed text-muted">
+            Reply in Telegram to log: <code className="text-fg">500</code> · <code className="text-fg">shake</code> · <code className="text-fg">creatine</code> ·{' '}
+            <code className="text-fg">w 73.8</code> · <code className="text-fg">sleep 7.5</code> · <code className="text-fg">status</code>. It shows up here within seconds while the app is open, or next time you open it.
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <Button size="sm" icon={Send} onClick={test}>
+              Test
+            </Button>
+            <Button size="sm" icon={RefreshCw} onClick={syncNow} disabled={busy}>
+              Sync
+            </Button>
+            <Button size="sm" variant="ghost" icon={Unlink} onClick={disconnect}>
+              Unlink
+            </Button>
+          </div>
+        </>
+      ) : phase === 'pairing' ? (
+        <>
+          <p className="text-sm">
+            Open Telegram and tap <b>Start</b>. This screen updates by itself once the bot confirms.
+          </p>
+          <a href={link} target="_blank" rel="noopener noreferrer" className="press mt-3 flex h-12 items-center justify-center gap-2 rounded-xl bg-water font-semibold text-on-accent">
+            <ExternalLink size={18} /> Open Telegram
+          </a>
+          <Button size="sm" variant="ghost" className="mt-2" onClick={() => setPhase('idle')}>
+            Cancel
+          </Button>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted">Get reminders in Telegram with tap-to-log buttons, and log food, water, supplements or weight by replying. Works even when this app is closed.</p>
+          <Button variant="primary" className="mt-3 w-full" icon={Bot} onClick={connect} disabled={busy}>
+            {busy ? 'Connecting…' : 'Connect Telegram'}
+          </Button>
+          {err && <p className="mt-2 text-sm text-danger">{err}</p>}
+          <button type="button" onClick={() => setShowUrl(!showUrl)} className="mt-2 text-xs text-faint underline">
+            {showUrl ? 'Hide' : 'Bot server address'}
+          </button>
+          {showUrl && <TextInput value={url} onChange={(e) => setUrl(e.target.value)} className="mt-2 !h-10 text-sm" aria-label="Bot server URL" />}
+        </>
+      )}
+    </Card>
   );
 }

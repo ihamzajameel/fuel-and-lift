@@ -1,0 +1,14 @@
+{
+  "name": "fuel-lift-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram reminders and two-way logging for Fuel & Lift",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  }
+}

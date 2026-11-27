@@ -31,8 +31,8 @@ export function logFood(d, key, item, at = Date.now()) {
   return entry;
 }
 
-export function logPreset(d, key, preset, entryId) {
-  const entry = logFood(d, key, { ...preset, id: entryId, presetId: preset.id });
+export function logPreset(d, key, preset, entryId, at) {
+  const entry = logFood(d, key, { ...preset, id: entryId, presetId: preset.id, at });
   if (preset.supplementId) ensureDay(d, key).supps[preset.supplementId] = true;
   return entry;
 }
@@ -96,7 +96,7 @@ export function removeBody(d, date) {
 }
 
 export function setSleep(d, key, sleep) {
-  ensureDay(d, key).sleep = sleep;
+  ensureDay(d, key).sleep = sleep && sleep.hours != null ? sleep : null;
 }
 
 export function setSteps(d, key, steps) {

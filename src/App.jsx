@@ -11,6 +11,7 @@ import { dueBetween, isOccurrenceDone, reminderContent } from './lib/reminders';
 import { buzz, chime, showSystemNotification, unlockAudio } from './lib/notify';
 import * as ops from './lib/ops';
 import { dayKey, uid } from './lib/time';
+import { useBotSync } from './lib/sync';
 
 const LAST_CHECK = 'fuel-lift:lastCheck';
 const FIRED = 'fuel-lift:fired';
@@ -33,7 +34,7 @@ function initialTab() {
 }
 
 function Shell() {
-  const { state, mutate, latest } = useStore();
+  const { state, mutate, latest, today } = useStore();
   const [tab, setTab] = useState(initialTab);
   const [moreView, setMoreView] = useState('main');
   const [toastMsg, setToastMsg] = useState(null);
@@ -88,8 +89,11 @@ function Shell() {
   const fire = useCallback(
     (occs, { forceSystem = false } = {}) => {
       const s = latest.current;
+      // Telegram handles reminders when connected; the app stays quiet to avoid double pings.
+      const viaTelegram = s.meta.tg?.paired && s.meta.tg?.reminders !== false;
       const items = [];
       for (const o of occs) {
+        if (viaTelegram && !o.test) continue;
         const rem = s.reminders.find((r) => r.id === o.id);
         if (!rem) continue;
         if (!o.test && isOccurrenceDone(rem, { ...o, okey: o.baseKey || o.okey }, s)) continue; // already logged: stay quiet
@@ -151,6 +155,8 @@ function Shell() {
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, []);
+
+  useBotSync({ state, mutate, today, latest, toast });
 
   const dismissBanner = useCallback((okey) => setBanners((b) => b.filter((x) => x.okey !== okey)), []);
 

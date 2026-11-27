@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "deploy:pages": "bash scripts/deploy-gh-pages.sh",
+    "pages:actions": "bash scripts/deploy-gh-pages.sh --actions"
   },
   "dependencies": {
     "lucide-react": "^1.82.0",

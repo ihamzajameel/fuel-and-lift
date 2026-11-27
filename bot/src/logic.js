@@ -1,0 +1,345 @@
+// Pure logic shared by the scheduler and the chat handlers (no I/O here, so it's unit-testable).
+
+// ---------------------------------------------------------------- time
+export const toMin = (t) => {
+  const [h, m] = String(t || '0:0').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+export const fromMin = (min) => {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
+export const fmt12 = (t) => {
+  const [h, m] = String(t).split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+export const addDays = (key, n) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+export const weekday = (key) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+};
+
+/** Wall-clock date and minute-of-day in the user's timezone. */
+export function localParts(ms, tz = 'UTC') {
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms));
+  } catch {
+    return localParts(ms, 'UTC');
+  }
+  const p = Object.fromEntries(parts.map((x) => [x.type, x.value]));
+  return { ymd: `${p.year}-${p.month}-${p.day}`, min: (Number(p.hour) % 24) * 60 + Number(p.minute) };
+}
+
+/** The app's "logical day": anything before dayStartHour (default 4 AM) belongs to the previous day. */
+export function logicalNow(ms, tz, startHour = 4) {
+  const { ymd, min } = localParts(ms, tz);
+  const day = min < startHour * 60 ? addDays(ymd, -1) : ymd;
+  return { day, rel: (min - startHour * 60 + 1440) % 1440, min };
+}
+export const relOf = (t, startHour = 4) => (toMin(t) - startHour * 60 + 1440) % 1440;
+
+export function slotTimes(rem, startHour = 4) {
+  if (rem.kind !== 'interval') return [rem.time];
+  const base = startHour * 60;
+  const s = relOf(rem.start, startHour);
+  const e = relOf(rem.end, startHour);
+  const every = Math.max(15, Number(rem.every) || 90);
+  const out = [];
+  for (let m = s; m <= e && out.length < 96; m += every) out.push(fromMin(m + base));
+  return out;
+}
+
+/** Reminder occurrences that became due within the last `windowMin` minutes and haven't been sent. */
+export function dueNow(state, nowMs, sent = {}, windowMin = 10) {
+  const sh = state.dayStartHour ?? 4;
+  const { day, rel } = logicalNow(nowMs, state.tz, sh);
+  const out = [];
+  for (const rem of state.reminders || []) {
+    if (!rem.enabled) continue;
+    if (rem.days?.length && !rem.days.includes(weekday(day))) continue;
+    for (const t of slotTimes(rem, sh)) {
+      const diff = rel - relOf(t, sh);
+      if (diff < 0 || diff >= windowMin) continue;
+      const okey = `${rem.id}@${day}@${t}`;
+      if (!sent[okey]) out.push({ rem, okey, day, time: t });
+    }
+  }
+  return out;
+}
+
+export function nextUp(state, nowMs) {
+  const sh = state.dayStartHour ?? 4;
+  const { day, rel } = logicalNow(nowMs, state.tz, sh);
+  let best = null;
+  for (const rem of state.reminders || []) {
+    if (!rem.enabled || (rem.days?.length && !rem.days.includes(weekday(day)))) continue;
+    for (const t of slotTimes(rem, sh)) {
+      const r = relOf(t, sh);
+      if (r > rel && (!best || r < best.r)) best = { r, t, rem };
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------- today view
+const ZERO = () => ({ kcal: 0, p: 0, c: 0, f: 0, water: 0 });
+
+/**
+ * Today's totals as the bot sees them: the app's last snapshot plus any Telegram
+ * events the app hasn't applied yet (undo events subtract what they reverse).
+ */
+export function todayView(db, nowMs) {
+  const s = db.state;
+  const { day } = logicalNow(nowMs, s.tz, s.dayStartHour ?? 4);
+  const snap = s.today?.key === day ? s.today : null;
+  const v = {
+    day,
+    totals: { ...ZERO(), ...(snap?.totals || {}) },
+    presetIds: new Set(snap?.presetIds || []),
+    supps: { ...(snap?.supps || {}) },
+    done: new Set(snap?.done || []),
+    trained: !!snap?.trained,
+    steps: snap?.steps ?? null,
+    sleep: snap?.sleep ?? null,
+  };
+  const applied = s.lastEventId || 0;
+  const byId = new Map(db.events.map((e) => [e.id, e]));
+  for (const e of db.events) {
+    if (e.id <= applied || e.day !== day) continue;
+    if (e.type === 'undo') {
+      const ref = byId.get(e.data.ref) || e.data.refEvent;
+      if (ref && ref.day === day) applyToView(v, ref, s, -1);
+    } else applyToView(v, e, s, +1);
+  }
+  for (const k of Object.keys(v.totals)) v.totals[k] = Math.round(v.totals[k] * 10) / 10;
+  return v;
+}
+
+function applyToView(v, e, s, sign) {
+  const add = (m) => {
+    for (const k of ['kcal', 'p', 'c', 'f']) v.totals[k] += sign * (Number(m[k]) || 0);
+  };
+  switch (e.type) {
+    case 'water':
+      v.totals.water += sign * (Number(e.data.ml) || 0);
+      break;
+    case 'preset': {
+      const p = (s.presets || []).find((x) => x.id === e.data.presetId);
+      if (!p) break;
+      add(p);
+      if (sign > 0) {
+        v.presetIds.add(p.id);
+        if (p.supplementId) v.supps[p.supplementId] = true;
+      } else v.presetIds.delete(p.id);
+      break;
+    }
+    case 'food':
+      add(e.data);
+      break;
+    case 'supp':
+      v.supps[e.data.id] = sign > 0 ? e.data.value !== false : false;
+      break;
+    case 'done':
+      if (sign > 0) v.done.add(e.data.okey);
+      else v.done.delete(e.data.okey);
+      break;
+    case 'steps':
+      v.steps = sign > 0 ? e.data.steps : null;
+      break;
+    case 'sleep':
+      v.sleep = sign > 0 ? e.data.hours : null;
+      break;
+  }
+}
+
+export function isDone(rem, okey, v) {
+  if (v.done.has(okey)) return true;
+  const a = rem.actions || {};
+  if (a.presetIds?.length && a.presetIds.some((id) => v.presetIds.has(id))) return true;
+  if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((id) => v.supps[id])) return true;
+  if (a.openTab === 'train' && v.trained) return true;
+  return false;
+}
+
+/** Front-loaded water pace, identical to the app's. */
+export function waterPace(rel, t, startHour = 4) {
+  const a = relOf(t.waterStart || '09:30', startHour);
+  const b = relOf(t.waterFrontBy || '21:00', startHour);
+  const c = relOf(t.waterEnd || '01:00', startHour);
+  const total = Number(t.water) || 2800;
+  const front = (total * (Number(t.waterFrontPct) || 80)) / 100;
+  if (rel <= a) return 0;
+  if (rel <= b) return Math.round((front * (rel - a)) / Math.max(1, b - a));
+  if (rel <= c) return Math.round(front + ((total - front) * (rel - b)) / Math.max(1, c - b));
+  return total;
+}
+
+// ---------------------------------------------------------------- formatting
+export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export const L = (ml) => `${(ml / 1000).toFixed(ml % 100 === 0 ? 1 : 2)} L`;
+export const n0 = (x) => Math.round(Number(x) || 0).toLocaleString('en-US');
+
+export const EMOJI = { coffee: '🥤', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', bell: '🔔' };
+
+export function describeActions(rem, state) {
+  const a = rem.actions || {};
+  const parts = [];
+  for (const id of a.presetIds || []) {
+    const p = (state.presets || []).find((x) => x.id === id);
+    if (p) parts.push(p.name);
+  }
+  if (a.waterMl) parts.push(`${a.waterMl} ml`);
+  for (const id of a.supplementIds || []) {
+    const s = (state.supplements || []).find((x) => x.id === id);
+    parts.push(s ? s.name : id);
+  }
+  return parts;
+}
+
+export function shortStatus(v, t) {
+  return `Today: ${n0(v.totals.kcal)}/${n0(t.kcal)} kcal · ${n0(v.totals.p)}/${n0(t.p)} g protein · ${L(v.totals.water)}/${L(t.water)}`;
+}
+
+export function statusText(db, nowMs) {
+  const s = db.state;
+  const t = s.targets || {};
+  const v = todayView(db, nowMs);
+  const { rel } = logicalNow(nowMs, s.tz, s.dayStartHour ?? 4);
+  const pace = waterPace(rel, t, s.dayStartHour ?? 4);
+  const left = t.kcal - v.totals.kcal;
+  const tick = (b) => (b ? '✅' : '⬜');
+  const supps = (s.supplements || []).map((x) => `${x.name} ${tick(v.supps[x.id])}`).join(' · ');
+  const next = nextUp(s, nowMs);
+  const lines = [
+    `📊 <b>Today</b> (${v.day})`,
+    `🔥 ${n0(v.totals.kcal)} / ${n0(t.kcal)} kcal (${left >= 0 ? `${n0(left)} left` : `${n0(-left)} over`})`,
+    `🥩 ${n0(v.totals.p)} / ${t.p} g protein${v.totals.p >= t.p ? ' ✅' : ''}`,
+    `🍚 ${n0(v.totals.c)} / ${t.c} g carbs · 🧈 ${n0(v.totals.f)} / ${t.f} g fat`,
+    `💧 ${L(v.totals.water)} / ${L(t.water)} (pace ${L(pace)})`,
+    supps && `💊 ${supps}`,
+    v.sleep != null && `😴 ${v.sleep} h sleep`,
+    v.steps != null && `👟 ${n0(v.steps)} steps`,
+    s.nextWorkout && `🏋️ ${esc(s.nextWorkout)}`,
+    next && `\n⏭ Next: ${fmt12(next.t)} · ${esc(next.rem.title)}`,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+export const HELP = [
+  '<b>Log by replying in plain words</b>',
+  '<code>500</code> or <code>water 300</code>: water (ml)',
+  '<code>shake</code>, <code>eggs</code>, <code>dates</code>, <code>lunch</code>, <code>dinner</code>: your presets',
+  '<code>creatine</code>, <code>whey</code>, <code>ashwa</code>: tick a supplement',
+  '<code>chicken rice 550 kcal 45p 60c 12f</code>: custom food',
+  '<code>w 73.8</code> · <code>waist 88</code> · <code>sleep 7.5</code> · <code>steps 9500</code>',
+  'Combine with commas: <code>shake, 500, creatine</code>',
+  '',
+  '/status: today so far · /undo: undo the last log · /help',
+].join('\n');
+
+// ---------------------------------------------------------------- parsing replies
+const num = (s) => Number(String(s).replace(/,/g, '.'));
+const STOP = new Set(['the', 'and', 'with', 'my', 'a', 'of', 'ml', 'kcal', 'cal', 'log', 'ate', 'had']);
+const words = (s) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !STOP.has(w) && !/^\d+$/.test(w));
+
+/** Split a message into separate items: "shake, 500 + creatine" */
+export const splitParts = (text) =>
+  text
+    .split(/\s*(?:,|;|\n|\s\+\s|\band\b|&)\s*/i)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/** Returns { type, data, label } or null. */
+export function parsePart(part, state) {
+  const p = part.trim();
+  const l = p.toLowerCase();
+  let m;
+
+  if ((m = l.match(/^(?:weight|wt|w|kg)\s*[:=]?\s*(\d{2,3}(?:[.,]\d{1,2})?)\s*(?:kg)?$/)) || (m = l.match(/^(\d{2,3}(?:[.,]\d{1,2})?)\s*kgs?$/))) {
+    const kg = num(m[1]);
+    if (kg >= 30 && kg <= 250) return { type: 'body', data: { weight: kg }, label: `⚖️ Weight ${kg} kg` };
+  }
+  if ((m = l.match(/^waist\s*[:=]?\s*(\d{2,3}(?:[.,]\d)?)\s*(?:cm)?$/))) {
+    const cm = num(m[1]);
+    if (cm >= 40 && cm <= 200) return { type: 'body', data: { waist: cm }, label: `📏 Waist ${cm} cm` };
+  }
+  if ((m = l.match(/^(?:sleep|slept)\s*[:=]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:h|hrs?|hours?)?$/))) {
+    const h = num(m[1]);
+    if (h > 0 && h <= 16) return { type: 'sleep', data: { hours: h }, label: `😴 Sleep ${h} h` };
+  }
+  if ((m = l.match(/^steps?\s*[:=]?\s*(\d[\d,]{2,7})$/)) || (m = l.match(/^(\d[\d,]{2,7})\s*steps?$/))) {
+    const st = Number(m[1].replace(/,/g, ''));
+    if (st >= 0 && st <= 100000) return { type: 'steps', data: { steps: st }, label: `👟 ${n0(st)} steps` };
+  }
+  if ((m = l.match(/^(?:water|drank|drink|💧)?\s*\+?\s*(\d(?:[.,]\d{1,2})?)\s*(?:l|lt|ltr|litres?|liters?)(?:\s*water)?$/))) {
+    const ml = Math.round(num(m[1]) * 1000);
+    if (ml >= 50 && ml <= 3000) return { type: 'water', data: { ml }, label: `💧 +${ml} ml water` };
+  }
+  if ((m = l.match(/^(?:water|drank|drink|💧)?\s*\+?\s*(\d{2,4})\s*(?:ml)?(?:\s*water)?$/))) {
+    const ml = Number(m[1]);
+    if (ml >= 30 && ml <= 3000) return { type: 'water', data: { ml }, label: `💧 +${ml} ml water` };
+  }
+
+  // Custom food with numbers: "chicken rice 550 kcal 45p 60c 12f" / "food oats 300"
+  if (/\d\s*(?:kcal|cal|calories)\b/.test(l) || /^(?:food|ate|eat|log)\s+/.test(l) || /\d+\s*g?\s*(?:p|protein)\b/.test(l)) {
+    const food = parseFood(p);
+    if (food) return { type: 'food', data: food, label: `🍽️ ${food.name}: ${food.kcal} kcal, ${food.p} g P` };
+  }
+
+  // Supplements: "creatine", "whey", "ashwa"
+  for (const s of state.supplements || []) {
+    const names = [s.id.toLowerCase(), ...words(s.name)];
+    if (names.some((n) => n === l || (l.length >= 4 && n.startsWith(l)) || (n.length >= 4 && l.includes(n))))
+      return { type: 'supp', data: { id: s.id, value: true }, label: `💊 ${s.name} ✓` };
+  }
+
+  // Presets: best word overlap ("shake" → Morning Shake, "eggs" → 2 Eggs + 6 Almonds)
+  const want = words(l);
+  if (want.length) {
+    let best = null;
+    for (const pr of state.presets || []) {
+      const have = words(pr.name);
+      const score = want.filter((w) => have.some((h) => h === w || h.startsWith(w) || w.startsWith(h))).length;
+      if (score > 0 && (!best || score > best.score)) best = { pr, score };
+    }
+    if (best && best.score >= Math.ceil(want.length / 2))
+      return { type: 'preset', data: { presetId: best.pr.id }, label: `🍽️ ${best.pr.name} (${best.pr.kcal} kcal, ${best.pr.p} g P)` };
+  }
+  return null;
+}
+
+export function parseFood(text) {
+  const body = text.replace(/^(?:food|ate|eat|log)\s+/i, '');
+  const grab = (re) => {
+    const m = body.match(re);
+    return m ? num(m[1]) : null;
+  };
+  let kcal = grab(/(\d+(?:[.,]\d+)?)\s*(?:kcal|cal|calories)\b/i);
+  const p = grab(/(\d+(?:[.,]\d+)?)\s*g?\s*(?:p|prot|protein)\b/i);
+  const c = grab(/(\d+(?:[.,]\d+)?)\s*g?\s*(?:c|carbs?)\b/i);
+  const f = grab(/(\d+(?:[.,]\d+)?)\s*g?\s*(?:f|fats?)\b/i);
+  let name = body
+    .replace(/(\d+(?:[.,]\d+)?)\s*g?\s*(?:kcal|calories|cal|protein|prot|p|carbs?|c|fats?|f)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (kcal == null) {
+    const m = name.match(/(\d{2,4})\s*$/);
+    if (m) {
+      kcal = Number(m[1]);
+      name = name.slice(0, m.index).trim();
+    }
+  }
+  if (kcal == null && p == null && c == null && f == null) return null;
+  if (kcal == null) kcal = Math.round(4 * (p || 0) + 4 * (c || 0) + 9 * (f || 0));
+  name = name.replace(/^[-:\s]+|[-:\s]+$/g, '') || 'Quick add';
+  return { name: name.charAt(0).toUpperCase() + name.slice(1), qty: 1, unit: 'serving', kcal: Math.round(kcal), p: p || 0, c: c || 0, f: f || 0 };
+}
