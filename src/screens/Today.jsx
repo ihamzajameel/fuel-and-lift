@@ -309,7 +309,13 @@ function PlanCard() {
                     {!i.done && !i.missed && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {(actions.length > 0 || i.rem.actions?.openTab) && (
-                          <Button variant={i.rem.actions?.openTab ? 'lift' : 'primary'} size="sm" icon={i.rem.actions?.openTab ? Dumbbell : Check} onClick={() => act(i)}>
+                          <Button
+                            variant={i.rem.actions?.openTab ? 'lift' : 'primary'}
+                            size="sm"
+                            icon={i.rem.actions?.openTab ? Dumbbell : Check}
+                            onClick={() => act(i)}
+                            className="!h-auto min-h-9 max-w-full !justify-start py-1.5 text-left leading-snug !whitespace-normal"
+                          >
                             {i.rem.actions?.openTab ? 'Open workout' : `Log ${actions.join(' + ')}`}
                           </Button>
                         )}

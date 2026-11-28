@@ -80,6 +80,10 @@
   body {
     min-height: 100dvh;
   }
+  /* A long label must never widen the page (phones then show it zoomed/shifted sideways). */
+  #root {
+    overflow-x: clip;
+  }
   button {
     cursor: pointer;
     user-select: none;
