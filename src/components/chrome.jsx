@@ -29,7 +29,7 @@ import { fmtDuration, fmtTime } from '../lib/time';
 import { describeActions } from '../lib/reminders';
 import { buzz, chime, showSystemNotification } from '../lib/notify';
 
-export const REMINDER_ICONS = { coffee: Coffee, droplet: Droplet, salad: Salad, egg: Egg, zap: Zap, dumbbell: Dumbbell, utensils: Utensils, moon: Moon, pill: Pill, nut: Nut, ruler: Ruler, footprints: Footprints, bell: BellRing };
+export const REMINDER_ICONS = { coffee: Coffee, cup: Coffee, droplet: Droplet, salad: Salad, egg: Egg, zap: Zap, dumbbell: Dumbbell, utensils: Utensils, moon: Moon, pill: Pill, nut: Nut, ruler: Ruler, footprints: Footprints, bell: BellRing };
 export const reminderIcon = (name) => REMINDER_ICONS[name] || BellRing;
 
 const TABS = [

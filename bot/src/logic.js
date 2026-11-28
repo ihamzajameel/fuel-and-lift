@@ -193,7 +193,7 @@ export const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '
 export const L = (ml) => `${(ml / 1000).toFixed(ml % 100 === 0 ? 1 : 2)} L`;
 export const n0 = (x) => Math.round(Number(x) || 0).toLocaleString('en-US');
 
-export const EMOJI = { coffee: '🥤', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', nut: '🥜', ruler: '📏', footprints: '👟', bell: '🔔' };
+export const EMOJI = { coffee: '🥤', cup: '☕', droplet: '💧', salad: '🥗', egg: '🥚', zap: '⚡', dumbbell: '🏋️', utensils: '🍽️', moon: '🌙', pill: '💊', nut: '🥜', ruler: '📏', footprints: '👟', bell: '🔔' };
 
 export function describeActions(rem, state) {
   const a = rem.actions || {};
