@@ -95,7 +95,7 @@ export function runReminderActions(d, key, reminder, okey, at) {
   }
   if (a.waterMl) addWater(d, key, a.waterMl, uid(), at);
   for (const sid of a.supplementIds || []) if (!outOfStock(d, sid)) setSupp(d, key, sid, true);
-  if (a.sleepUsual) logUsualSleep(d, key);
+  if (a.sleepUsual) logUsualSleep(d, key, at);
   if (okey) markDone(d, key, okey);
 }
 
@@ -126,12 +126,13 @@ export function removeBody(d, date) {
 }
 
 /** Last night's sleep at your usual times (bed → wake from your profile). */
-export function logUsualSleep(d, key) {
+/** `at` = when it was logged, so a later manual change always beats a late-arriving "as usual". */
+export function logUsualSleep(d, key, at = Date.now()) {
   const bed = d.profile.bedTime || '02:00';
   const wake = d.profile.wakeTime || '10:10';
   const toM = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   const hours = Math.round((((toM(wake) - toM(bed) + 1440) % 1440) / 60) * 100) / 100;
-  setSleep(d, key, { ...(ensureDay(d, key).sleep || {}), bed, wake, hours });
+  setSleep(d, key, { ...(ensureDay(d, key).sleep || {}), bed, wake, hours, at: at || Date.now() });
 }
 
 export function setSleep(d, key, sleep) {

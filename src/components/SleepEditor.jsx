@@ -26,7 +26,7 @@ export default function SleepEditor({ dateKey, title = 'Sleep last night' }) {
     setEditing(true);
   };
   const save = () => {
-    mutate((d) => ops.setSleep(d, dateKey, { ...(d.days[dateKey]?.sleep || {}), bed, wake, hours: sleepSpan(bed, wake) }));
+    mutate((d) => ops.setSleep(d, dateKey, { ...(d.days[dateKey]?.sleep || {}), bed, wake, hours: sleepSpan(bed, wake), at: Date.now() }));
     setEditing(false);
   };
 

@@ -60,3 +60,20 @@ test('no changes means no new stamps', () => {
   assert.equal(stampChanges(start, sum, 9999), start);
   assert.ok(sameContent(start, mergeState(start, start)));
 });
+
+test('a sleep edit survives when the other device touched the same day later', () => {
+  const a = clone(start);
+  const b = clone(start);
+  const k = '2026-11-27';
+  // Phone: "as usual" from Telegram at t=2000, then corrected to 12:00 at t=3000.
+  a.days[k].sleep = { bed: '02:00', wake: '12:00', hours: 10, at: 3000 };
+  const a2 = stampChanges(a, sum, 3000);
+  // Mac: replays the old "as usual" (at 2000) and logs water later (day stamped at 4000).
+  b.days[k].sleep = { bed: '02:00', wake: '10:10', hours: 8.17, at: 2000 };
+  b.days[k].water.push({ id: 'w2', ml: 300, at: 4000 });
+  const b2 = stampChanges(b, sum, 4000);
+  for (const m of [mergeState(a2, b2), mergeState(b2, a2)]) {
+    assert.equal(m.days[k].sleep.wake, '12:00');
+    assert.equal(m.days[k].water.length, 2);
+  }
+});

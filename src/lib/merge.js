@@ -120,8 +120,12 @@ export function mergeState(local, remote) {
     }
     const preferB = newer(ta, tb, `day:${k}`);
     const win = preferB ? db : da;
+    // Sleep carries its own edit time, so an edit on one device isn't lost when the other device touched the same day later.
+    const sleepAt = (x) => x?.at || 0;
+    const sleep = sleepAt(da.sleep) === sleepAt(db.sleep) ? win.sleep : sleepAt(db.sleep) > sleepAt(da.sleep) ? db.sleep : da.sleep;
     out.days[k] = {
       ...win,
+      ...(sleep !== undefined ? { sleep } : {}),
       foods: unionById(da.foods, db.foods, preferB, tomb).sort((x, y) => (x.at || 0) - (y.at || 0)),
       water: unionById(da.water, db.water, preferB, tomb).sort((x, y) => (x.at || 0) - (y.at || 0)),
     };

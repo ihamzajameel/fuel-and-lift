@@ -220,7 +220,9 @@ function applyOne(d, e, byId) {
     }
     case 'sleep': {
       const prev = d.days[day]?.sleep || {};
-      ops.setSleep(d, day, { ...prev, hours: Number(x.hours), bed: x.bed ?? prev.bed, wake: x.wake ?? prev.wake });
+      // A change made in the app after this event was sent wins (e.g. "as usual" tapped, then corrected).
+      if ((prev.at || 0) > (e.at || 0)) break;
+      ops.setSleep(d, day, { ...prev, hours: Number(x.hours), bed: x.bed ?? prev.bed, wake: x.wake ?? prev.wake, at: e.at || Date.now() });
       break;
     }
     case 'steps':
