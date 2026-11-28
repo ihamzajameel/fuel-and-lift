@@ -9,7 +9,7 @@ import PhotoButton from '../components/PhotoButton';
 import SleepEditor from '../components/SleepEditor';
 import { reminderIcon } from '../components/chrome';
 import { dayTotals, fmtL, paceStatus, waterPaceTarget } from '../lib/nutrition';
-import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed, mealLabel, reminderChoices } from '../lib/reminders';
+import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed, mealLabel, presetLogged, reminderChoices } from '../lib/reminders';
 import { dailyScore, insights } from '../lib/coach';
 import { currentStreak } from '../lib/stats';
 import { nextDayIndex, sessionStats } from '../lib/workout';
@@ -326,6 +326,8 @@ function PlanCard() {
           const isOpen = expanded === i.okey && !i.interval;
           const actions = describeActions(i.rem, state.presets, state.supplements);
           const choices = reminderChoices(i.rem, state.presets);
+          // Once a lunch/dinner is logged, show what you had instead of the list of options.
+          const eaten = choices.find((p) => presetLogged(state.days[today], p.id, state.presets));
           return (
             <li key={i.okey} className="relative flex gap-3">
               {idx < items.length - 1 && <span className="absolute top-10 bottom-0 left-[61px] w-px bg-line" aria-hidden />}
@@ -345,12 +347,19 @@ function PlanCard() {
                   className="flex min-h-10 w-full items-center justify-between gap-2 text-left"
                   aria-expanded={isOpen}
                 >
-                  <span className={cx('font-medium leading-tight', (i.done || i.missed) && 'text-muted line-through decoration-faint')}>
-                    {i.rem.title}
-                    {i.interval && (
-                      <span className="block text-xs font-normal text-muted no-underline">
-                        Every {i.rem.every} min, {fmt12(i.rem.start)}–{fmt12(i.rem.end)} · {i.next ? `next ${fmtTime(i.next.at)}` : 'done for today'} ·{' '}
-                        {i.slots.filter((s) => s.at <= now).length}/{i.slots.length}
+                  <span className="min-w-0">
+                    <span className={cx('font-medium leading-tight', (i.done || i.missed) && 'text-muted line-through decoration-faint')}>
+                      {i.rem.title}
+                      {i.interval && (
+                        <span className="block text-xs font-normal text-muted no-underline">
+                          Every {i.rem.every} min, {fmt12(i.rem.start)}–{fmt12(i.rem.end)} · {i.next ? `next ${fmtTime(i.next.at)}` : 'done for today'} ·{' '}
+                          {i.slots.filter((s) => s.at <= now).length}/{i.slots.length}
+                        </span>
+                      )}
+                    </span>
+                    {eaten && (
+                      <span className="tnum mt-0.5 block text-xs text-muted">
+                        Had {mealLabel(eaten.name)} · {eaten.kcal} kcal · {eaten.p} g protein
                       </span>
                     )}
                   </span>
@@ -358,7 +367,7 @@ function PlanCard() {
                 </button>
                 {isOpen && (
                   <div className="anim-fade mt-1 rounded-xl bg-surface-2 p-3">
-                    <p className="text-sm text-muted">{i.rem.body}</p>
+                    <p className="text-sm text-muted">{eaten ? `You had ${mealLabel(eaten.name)}: ${eaten.kcal} kcal, ${eaten.p} g protein.` : i.rem.body}</p>
                     {!i.done && !i.missed && choices.length > 0 && (
                       <div className="mt-3">
                         <p className="mb-1.5 text-xs text-muted">What did you eat?</p>
