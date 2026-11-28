@@ -127,7 +127,8 @@ function SettingsMain() {
     try {
       const next = parseBackup(await f.text());
       const n = Object.keys(next.days).length;
-      if (!confirm(`Restore this backup (${n} logged days, ${next.sessions.length} workouts)? It replaces everything currently in the app.`)) return;
+      const where = synced ? ' on this device and on your other linked devices' : '';
+      if (!confirm(`Restore this backup (${n} logged days, ${next.sessions.length} workouts)? It replaces everything currently in the app${where}.`)) return;
       replace(next);
       toast('Backup restored');
     } catch (err) {
@@ -135,12 +136,17 @@ function SettingsMain() {
     }
   };
   const resetAll = () => {
+    if (synced) {
+      alert('This device is linked to sync, so erasing here would also delete data on your other devices. If you really want to start fresh on this device only, unlink it first in Devices & sync.');
+      return;
+    }
     if (!confirm('Erase ALL data and start fresh? Export a backup first. This cannot be undone.')) return;
     if (!confirm('Really erase everything?')) return;
     replace(makeDefaultState());
     toast('All data erased');
   };
 
+  const synced = !!(state.meta.tg?.paired && state.meta.tg?.url && state.meta.sync?.enabled !== false);
   const lastBackup = state.meta.lastBackup;
   const backupAge = lastBackup ? daysBetween(ymd(new Date(lastBackup)), today) : null;
   const hasData = Object.keys(state.days).length > 0;
@@ -163,12 +169,16 @@ function SettingsMain() {
           <ChevronRight size={20} className="text-muted" />
         </button>
 
-        {hasData && (backupAge == null || backupAge >= 7) && (
+        {hasData && (backupAge == null || backupAge >= (synced ? 30 : 7)) && (
           <div className="flex gap-3 rounded-2xl border border-warn/40 bg-warn/10 p-4">
             <TriangleAlert size={20} className="shrink-0 text-warn" />
             <div className="text-sm">
               <p className="font-semibold">{backupAge == null ? 'No backup yet' : `Last backup ${backupAge} days ago`}</p>
-              <p className="text-muted">Your data lives only on this device. Export a backup weekly; it takes 2 seconds.</p>
+              <p className="text-muted">
+                {synced
+                  ? 'Your log is already copied to your bot server automatically. A monthly backup file is your spare copy in case that server is ever lost.'
+                  : 'Your data lives only on this device. Export a backup weekly; it takes 2 seconds.'}
+              </p>
               <Button size="sm" variant="primary" className="mt-2" icon={canShareFiles ? Share2 : Download} onClick={canShareFiles ? share : download}>
                 Back up now
               </Button>
@@ -402,7 +412,9 @@ function SettingsMain() {
 
         <Card title="Backup & data" icon={HardDrive}>
           <p className="text-sm text-muted">
-            Everything is stored on this device only. No account, works offline.{' '}
+            {synced
+              ? 'Saved on this device and copied automatically to your bot server, so every linked device has the same data. A backup file is your own spare copy.'
+              : 'Everything is stored on this device only. No account, works offline.'}{' '}
             {lastBackup ? `Last backup: ${new Date(lastBackup).toLocaleDateString()}.` : 'Not backed up yet.'}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -419,7 +431,7 @@ function SettingsMain() {
             )}
           </div>
           <input ref={fileRef} type="file" accept="application/json,.json,text/plain,.txt" className="hidden" onChange={onImport} />
-          <p className="mt-2 text-xs text-faint">With Devices & sync on, your bot server also keeps a full copy that updates automatically.</p>
+          {!synced && <p className="mt-2 text-xs text-faint">Turn on Devices & sync and your bot server keeps a full copy that updates automatically.</p>}
           <Button variant="danger" size="sm" icon={Trash2} className="mt-4" onClick={resetAll}>
             Erase all data
           </Button>
