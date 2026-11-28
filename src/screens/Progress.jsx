@@ -126,25 +126,81 @@ function CoachTab() {
 
 function ScoreCard() {
   const { state, today } = useStore();
-  const s = dailyScore(state, today);
-  const y = dailyScore(state, addDays(today, -1));
+  const [pick, setPick] = useState(null); // a past day, or null for today
+  const [showPast, setShowPast] = useState(false);
+  const key = pick || today;
+  const s = dailyScore(state, key);
+  const days = useMemo(
+    () => Array.from({ length: 14 }, (_, i) => addDays(today, i - 13)).map((k) => ({ k, ...dailyScore(state, k) })),
+    [state, today]
+  );
+  const tone = (v) => (v >= 75 ? 'bg-good/20 text-good' : v >= 40 ? 'bg-warn/15 text-warn' : 'bg-surface-3 text-muted');
+  const avg = (() => {
+    const past = days.filter((d) => d.k !== today && d.logged);
+    return past.length ? Math.round(past.reduce((a, d) => a + d.score, 0) / past.length) : null;
+  })();
   return (
-    <Card title="Today's score" icon={Sparkles} right={y.logged && <span className="tnum text-sm text-muted">Yesterday {y.score}</span>}>
+    <Card
+      title={pick ? `Score · ${fmtDay(pick, today)}` : "Today's score"}
+      icon={Sparkles}
+      right={
+        pick ? (
+          <Button size="sm" variant="ghost" onClick={() => setPick(null)}>
+            Back to today
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" icon={showPast ? ChevronLeft : ChevronRight} onClick={() => setShowPast((v) => !v)}>
+            Past scores
+          </Button>
+        )
+      }
+    >
       <div className="flex items-center gap-4">
-        <div className="text-center">
-          <p className="tnum text-5xl leading-none font-bold">{s.score}</p>
+        <div className="w-16 shrink-0 text-center">
+          <p className="tnum text-5xl leading-none font-bold">{s.logged ? s.score : '–'}</p>
           <p className="mt-1 text-xs text-muted">/ 100</p>
         </div>
         <ul className="grid min-w-0 flex-1 grid-cols-1 gap-1 text-sm">
           {s.items.map((i) => (
             <li key={i.id} className={cx('flex items-center gap-2', i.ok ? 'text-fg' : 'text-faint')}>
-              <CircleCheck size={15} className={i.ok ? 'text-accent' : 'text-line'} aria-hidden />
-              <span className="truncate">{i.label}</span>
-              <span className="tnum ml-auto text-xs text-faint">{i.w}</span>
+              <CircleCheck size={15} className={cx('shrink-0', i.ok ? 'text-accent' : 'text-line')} aria-hidden />
+              <span className="min-w-0 truncate">{i.label}</span>
+              <span className="tnum ml-auto shrink-0 text-xs text-muted">{i.detail}</span>
+              <span className="tnum w-5 shrink-0 text-right text-xs text-faint">{i.w}</span>
             </li>
           ))}
         </ul>
       </div>
+      {!s.logged && <p className="mt-2 text-xs text-faint">Nothing logged on this day.</p>}
+
+      {(showPast || pick) && (
+        <div className="mt-4 border-t border-line/70 pt-3">
+          <div className="mb-2 flex items-baseline justify-between text-xs text-muted">
+            <span>Last 14 days · tap a day</span>
+            {avg != null && <span className="tnum">avg {avg}</span>}
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {days.map((d) => {
+              const sel = d.k === key;
+              return (
+                <button
+                  key={d.k}
+                  type="button"
+                  onClick={() => setPick(d.k === today ? null : d.k)}
+                  aria-pressed={sel}
+                  aria-label={`${fmtDay(d.k, today)}: ${d.logged ? `score ${d.score}` : 'nothing logged'}`}
+                  className={cx('press flex flex-col items-center rounded-lg py-1.5', d.logged ? tone(d.score) : 'bg-surface-2 text-faint', sel && 'ring-2 ring-accent')}
+                >
+                  <span className="text-[10px] font-medium uppercase opacity-80">{parseYmd(d.k).toLocaleDateString(undefined, { weekday: 'narrow' })}</span>
+                  <span className="tnum text-[10px] opacity-70">{Number(d.k.slice(8))}</span>
+                  <span className="tnum text-sm font-bold">{d.logged ? d.score : '–'}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-faint">Green 75+, amber 40+. The Habits tab has the 4-week view.</p>
+        </div>
+      )}
     </Card>
   );
 }

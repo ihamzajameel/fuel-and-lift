@@ -37,23 +37,35 @@ export function bodyTrend(body, field, today, windowDays = 28) {
 }
 
 /** 0–100 adherence score for one logical day. */
+const hm = (h) => {
+  const m = Math.round(Number(h) * 60);
+  return m % 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m / 60} h`;
+};
+
 export function dailyScore(state, key) {
   const day = state.days[key];
   const t = state.targets;
   const tot = dayTotals(day);
   const trained = state.sessions.some((s) => s.date === key && !s.rest);
   const items = [
-    { id: 'protein', label: `Protein ≥ ${Math.round(t.p * 0.9)} g`, ok: tot.p >= t.p * 0.9, w: 25 },
+    { id: 'protein', label: `Protein ≥ ${Math.round(t.p * 0.9)} g`, ok: tot.p >= t.p * 0.9, w: 25, detail: `${Math.round(tot.p)} g` },
     {
       id: 'kcal',
       label: state.profile.goalType === 'lean_bulk' ? `Calories ≥ ${Math.round(t.kcal * 0.93).toLocaleString()}` : 'Calories within target',
       ok: state.profile.goalType === 'lean_bulk' ? tot.kcal >= t.kcal * 0.93 && tot.kcal <= t.kcal * 1.12 : tot.kcal >= t.kcal * 0.85 && tot.kcal <= t.kcal * 1.08,
       w: 20,
+      detail: Math.round(tot.kcal).toLocaleString(),
     },
-    { id: 'water', label: 'Water ≥ 90%', ok: tot.water >= t.water * 0.9, w: 15 },
-    { id: 'move', label: `Workout or ${(t.steps / 1000).toFixed(0)}k steps`, ok: trained || (day?.steps || 0) >= t.steps, w: 20 },
-    { id: 'creatine', label: 'Creatine taken', ok: !!day?.supps?.creatine, w: 10 },
-    { id: 'sleep', label: `Slept ≥ ${t.sleepHours - 0.5} h`, ok: (day?.sleep?.hours || 0) >= t.sleepHours - 0.5, w: 10 },
+    { id: 'water', label: 'Water ≥ 90%', ok: tot.water >= t.water * 0.9, w: 15, detail: `${(tot.water / 1000).toFixed(1)} L` },
+    {
+      id: 'move',
+      label: `Workout or ${(t.steps / 1000).toFixed(0)}k steps`,
+      ok: trained || (day?.steps || 0) >= t.steps,
+      w: 20,
+      detail: trained ? 'trained' : day?.steps != null ? `${Number(day.steps).toLocaleString()} steps` : '',
+    },
+    { id: 'creatine', label: 'Creatine taken', ok: !!day?.supps?.creatine, w: 10, detail: '' },
+    { id: 'sleep', label: `Slept ≥ ${hm(t.sleepHours - 0.5)}`, ok: (day?.sleep?.hours || 0) >= t.sleepHours - 0.5, w: 10, detail: day?.sleep?.hours ? hm(day.sleep.hours) : '' },
   ];
   const logged = !!day && (tot.kcal > 0 || tot.water > 0 || !!day.supps?.creatine || trained || day.sleep || day.steps);
   return { score: items.reduce((a, i) => a + (i.ok ? i.w : 0), 0), items, logged };
