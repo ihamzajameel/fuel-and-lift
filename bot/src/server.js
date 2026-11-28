@@ -688,7 +688,9 @@ const server = http.createServer(async (req, res) => {
       return reply(req, res, 200, { ok: true });
     }
     if (route === 'GET /api/events') {
-      const after = Number(url.searchParams.get('after')) || 0;
+      // Events already folded into the shared synced state reach other devices through /api/sync.
+      // Replaying them on a device that was closed for a while would undo newer edits.
+      const after = Math.max(Number(url.searchParams.get('after')) || 0, Number(getSync().doc?.meta?.tg?.lastEventId) || 0);
       return reply(req, res, 200, { events: db().events.filter((e) => e.id > after).slice(0, 500) });
     }
     if (route === 'POST /api/estimate') {
