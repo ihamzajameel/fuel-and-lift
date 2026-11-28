@@ -161,7 +161,7 @@ function Stat({ label, value, sub }) {
 
 // ---------------------------------------------------------------- Body
 const MEASURES = [
-  { f: 'waist', label: 'Waist', hint: 'at the navel, relaxed' },
+  { f: 'waist', label: 'Waist', form: 'Waist (navel)', hint: 'at the navel, relaxed' },
   { f: 'chest', label: 'Chest', hint: 'nipple line, arms down' },
   { f: 'arm', label: 'Bicep', hint: 'flexed, widest point' },
 ];
@@ -200,6 +200,7 @@ function BodyTab() {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const height = state.profile.heightCm;
   const goals = state.profile.goals || {};
+  const waistGoal = goals.waist ?? height * 0.5;
 
   const save = () => {
     if (Object.values(form).every((v) => v === '')) return;
@@ -243,14 +244,14 @@ function BodyTab() {
         <div className="space-y-4">
           <GoalBar label="Body weight" start={startWeight} now={w?.value ?? state.profile.weightKg} goal={state.profile.targetWeight} fmt={(v) => `${v} kg`} sub={eta} />
           <GoalBar
-            label="Waist (belly)"
+            label="Waist at navel (belly)"
             start={firstOf('waist')}
             now={tr.waist?.value}
-            goal={goals.waist ?? height * 0.5}
+            goal={waistGoal}
             fmt={L}
             sub={
               tr.waist
-                ? `Healthy is under ${L(height * 0.5)} (half your height). On a lean bulk, keep it from growing.`
+                ? `Milestones: under ${L(height * 0.5)} (half your height, healthy) → ${L(waistGoal)} (athletic)${goals.waistStretch ? ` → ${L(goals.waistStretch)} stretch` : ''}`
                 : 'Measure at the belly button on Sunday mornings to start tracking.'
             }
           />
@@ -288,7 +289,7 @@ function BodyTab() {
             <NumInput value={form.weight} onChange={(v) => set('weight', v)} suffix="kg" placeholder={String(state.profile.weightKg)} />
           </Field>
           {MEASURES.map((m) => (
-            <Field key={m.f} label={m.label}>
+            <Field key={m.f} label={m.form || m.label}>
               <NumInput value={form[m.f]} onChange={(v) => set(m.f, v)} suffix={u} placeholder="–" />
             </Field>
           ))}
@@ -339,7 +340,7 @@ function BodyTab() {
 
       {MEASURES.map((m) => {
         const pts = state.body.filter((b) => b[m.f]).map((b) => ({ date: b.date, value: toLen(b[m.f], unit) }));
-        const goal = m.f === 'waist' ? (unit === 'in' ? toLen(height * 0.5, unit) : Math.floor(height * 0.5)) : goals[m.f] != null ? toLen(goals[m.f], unit) : null;
+        const goal = m.f === 'waist' ? toLen(waistGoal, unit) : goals[m.f] != null ? toLen(goals[m.f], unit) : null;
         return (
           <Card key={m.f} title={`${m.label} (${u})`} icon={Ruler}>
             {pts.length ? (
@@ -349,7 +350,7 @@ function BodyTab() {
                 unit={u}
                 tone="var(--accent)"
                 goal={goal}
-                goalLabel={m.f === 'waist' ? `Healthy < ${goal}` : `Goal ${goal}`}
+                goalLabel={`Goal ${goal}`}
               />
             ) : (
               <p className="text-sm text-muted">

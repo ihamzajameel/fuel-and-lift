@@ -22,7 +22,7 @@ import {
   Minus,
   CheckCheck,
 } from 'lucide-react';
-import { isBarbell, platesPerSide, warmupRamp } from '../lib/coach';
+import { BAR_KINDS, exerciseBar, platesPerSide, warmupRamp } from '../lib/coach';
 import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Card, Chip, Field, IconButton, NumInput, ScreenHeader, Segmented, Sheet, TextInput, Toggle, cx, fmtNum } from '../components/ui';
@@ -492,6 +492,7 @@ function ExerciseEditor({ dayId, onClose }) {
                       <span className="text-sm">Bodyweight exercise (weight optional)</span>
                       <Toggle checked={ex.bw} onChange={(v) => edit(ei, { bw: v })} label="Bodyweight" />
                     </label>
+                    {!ex.bw && <BarPicker ex={ex} onChange={(patch) => edit(ei, patch)} />}
                     <Field label="Note">
                       <TextInput value={ex.note || ''} onChange={(e) => edit(ei, { note: e.target.value })} placeholder="Cues, machine settings…" className="!h-10 text-sm" />
                     </Field>
@@ -520,7 +521,18 @@ function SessionView() {
   const [newEx, setNewEx] = useState('');
   const [swap, setSwap] = useState(null); // exercise index
   const library = useMemo(() => exerciseLibrary(state.program, PROGRAM_TEMPLATES, state.sessions), [state.program, state.sessions]);
-  const [plates, setPlates] = useState(null); // { name, weight }
+  const [plates, setPlates] = useState(null); // { ei, weight }
+  const openPlates = (ei) => {
+    const e = s.exercises[ei];
+    setPlates({ ei, weight: Number(e.sets.find((x) => !x.done)?.w || e.sets[0]?.w) || '' });
+  };
+  // Which bar an exercise is loaded on: saved on this session and on the plan, so next time it's remembered.
+  const setBar = (ei, patch) =>
+    mutate((d) => {
+      const e = d.activeSession.exercises[ei];
+      Object.assign(e, patch);
+      for (const day of d.program.days) for (const x of day.exercises) if (x.id === e.exId) Object.assign(x, patch);
+    });
 
   // History-based context per exercise (computed once per session start / history change).
   const context = useMemo(
@@ -675,6 +687,7 @@ function SessionView() {
           const ctx = context[ei] || {};
           const { last, hint, best } = ctx;
           const allDone = e.sets.length > 0 && e.sets.every((x) => x.done);
+          const bar = exerciseBar(e, state.settings);
           return (
             <Card key={e.exId + ei} className={cx(allDone && 'opacity-80')}>
               <div className="flex items-start justify-between gap-2">
@@ -687,17 +700,14 @@ function SessionView() {
                     {e.planned ?? e.sets.length} × {rangeText({ repMin: e.repMin ?? 8, repMax: e.repMax ?? 12, unit: e.unit })} · <Timer size={12} /> {e.rest}s
                     {e.note && ` · ${e.note}`}
                   </p>
+                  {bar && (
+                    <button type="button" onClick={() => openPlates(ei)} className="tnum mt-0.5 text-xs text-muted underline decoration-dotted underline-offset-2">
+                      Weight = total incl. {+bar.kg} kg {bar.kind === 'ez' ? 'EZ bar' : 'bar'}
+                    </button>
+                  )}
                 </div>
                 <div className="-mt-1 -mr-1 flex shrink-0">
-                  {isBarbell(e.name) && !e.bw && (
-                    <IconButton
-                      icon={Weight}
-                      label="Plates & warm-up"
-                      size={18}
-                      className="!h-9 !w-9"
-                      onClick={() => setPlates({ name: e.name, weight: Number(e.sets.find((x) => !x.done)?.w || e.sets[0]?.w) || '' })}
-                    />
-                  )}
+                  {!e.bw && <IconButton icon={Weight} label="Bar, plates & warm-up" size={18} className="!h-9 !w-9" onClick={() => openPlates(ei)} />}
                   <IconButton icon={X} label={`Remove ${e.name}`} size={18} onClick={() => removeExercise(ei)} className="!h-9 !w-9" />
                 </div>
               </div>
@@ -749,7 +759,7 @@ function SessionView() {
                 <div className="grid grid-cols-[28px_1fr_72px_64px_44px] items-center gap-2 px-0.5 pb-1 text-[11px] font-semibold tracking-wide text-faint">
                   <span>SET</span>
                   <span>PREV</span>
-                  <span className="text-center">{e.bw ? '+KG' : 'KG'}</span>
+                  <span className="text-center">{e.bw ? '+KG' : bar ? 'TOTAL KG' : 'KG'}</span>
                   <span className="text-center">{e.unit === 'sec' ? 'SEC' : 'REPS'}</span>
                   <span />
                 </div>
@@ -830,7 +840,7 @@ function SessionView() {
           </Button>
         </div>
       </div>
-      <PlateSheet value={plates} onClose={() => setPlates(null)} />
+      <PlateSheet value={plates} ex={plates ? s.exercises[plates.ei] : null} onBar={(patch) => setBar(plates.ei, patch)} onClose={() => setPlates(null)} />
       <SwapSheet open={swap != null} current={swap != null ? s.exercises[swap]?.name : ''} library={library} onPick={(lib) => swapExercise(swap, lib)} onClose={() => setSwap(null)} />
     </>
   );
@@ -897,35 +907,63 @@ const PLATE_STYLE = {
   1.25: { h: 34, bg: '#9ca3af' },
 };
 
-function PlateSheet({ value, onClose }) {
+/** Which bar an exercise is loaded on. Straight and EZ weights are shared by every exercise of that kind. */
+function BarPicker({ ex, onChange }) {
   const { state, mutate } = useStore();
-  const bar = Number(state.settings.barKg) || 20;
+  const info = exerciseBar(ex, state.settings);
+  const kind = info?.kind ?? 'none';
+  const value = kind === 'straight' ? state.settings.barKg : kind === 'ez' ? state.settings.ezBarKg : (ex.barKg ?? '');
+  const setKg = (v) => {
+    const kg = v === '' ? '' : Number(v);
+    if (kind === 'straight') mutate((d) => (d.settings.barKg = kg));
+    else if (kind === 'ez') mutate((d) => (d.settings.ezBarKg = kg));
+    else onChange({ bar: 'other', barKg: kg });
+  };
+  return (
+    <div>
+      <span className="mb-1.5 block text-[13px] font-medium text-muted">Loaded on</span>
+      <Segmented size="sm" value={kind} onChange={(v) => onChange({ bar: v, barKg: ex.barKg ?? '' })} options={BAR_KINDS} />
+      {kind === 'none' ? (
+        <p className="mt-2 text-xs text-faint">Dumbbells, cables and machines: log the number on the dumbbell (one hand) or the stack.</p>
+      ) : (
+        <div className="mt-2 flex items-center gap-3">
+          <div className="w-28 shrink-0">
+            <NumInput value={value} onChange={setKg} suffix="kg" className="!h-10" aria-label="Bar weight" />
+          </div>
+          <p className="text-xs text-faint">{kind === 'other' ? 'For this exercise only' : `Used for every ${kind === 'ez' ? 'EZ-bar' : 'straight-bar'} exercise. Check the number on the bar's sleeve.`}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlateSheet({ value, ex, onBar, onClose }) {
+  const { state } = useStore();
   const [w, setW] = useState('');
   const [key, setKey] = useState(null);
-  if (value && value.name !== key) {
-    setKey(value.name);
+  const k = value ? `${value.ei}:${ex?.exId}` : null;
+  if (value && k !== key) {
+    setKey(k);
     setW(value.weight || '');
   }
   if (!value && key) setKey(null);
-  if (!value) return null;
+  if (!value || !ex) return null;
+  const info = exerciseBar(ex, state.settings);
+  const bar = info?.kg ?? 0;
   const load = platesPerSide(w, bar);
-  const ramp = warmupRamp(w, bar);
+  const ramp = info ? warmupRamp(w, bar) : [];
   const perSide = (x) => {
     const p = platesPerSide(x, bar).plates;
     return p.length ? p.join(' + ') : 'empty bar';
   };
   return (
-    <Sheet open onClose={onClose} title={value.name}>
+    <Sheet open onClose={onClose} title={ex.name}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Working weight">
-            <NumInput value={w} onChange={setW} suffix="kg" className="text-lg font-semibold" />
-          </Field>
-          <Field label="Bar">
-            <NumInput value={state.settings.barKg} onChange={(v) => mutate((d) => (d.settings.barKg = v === '' ? '' : Number(v)))} suffix="kg" />
-          </Field>
-        </div>
-
+        <Field label={info ? 'Working weight (total, bar included)' : 'Working weight'}>
+          <NumInput value={w} onChange={setW} suffix="kg" className="text-lg font-semibold" />
+        </Field>
+        <BarPicker ex={ex} onChange={onBar} />
+        {info && (
         <div className="rounded-2xl bg-surface-2 p-4">
           <p className="text-xs font-semibold tracking-wide text-muted">EACH SIDE</p>
           <div className="mt-3 flex h-24 items-center" aria-hidden>
@@ -939,6 +977,7 @@ function PlateSheet({ value, onClose }) {
           <p className="tnum mt-3 text-lg font-semibold">{Number(w) > bar ? perSide(w) : Number(w) === bar ? 'Empty bar' : 'Enter a weight above the bar'}</p>
           {load.leftover > 0.01 && <p className="text-sm text-warn">Can't make exactly {w} kg; {load.leftover} kg short with standard plates.</p>}
         </div>
+        )}
 
         {ramp.length > 0 && (
           <div>

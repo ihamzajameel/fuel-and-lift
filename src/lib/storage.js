@@ -1,4 +1,4 @@
-import { applyPlanV2, applyPlanV3, ensureWeeklySplit, makeDefaultState } from './defaults';
+import { applyPlanV2, applyPlanV3, applyPlanV4, ensureWeeklySplit, makeDefaultState } from './defaults';
 import { dayKey } from './time';
 
 export const STORAGE_KEY = 'fuel-lift:v1';
@@ -29,6 +29,7 @@ export function migrate(raw) {
     out.meta.planNotice = true;
   } else ensureWeeklySplit(out);
   if (out.meta.plan < 3) applyPlanV3(out);
+  if (out.meta.plan < 4) applyPlanV4(out);
   return out;
 }
 

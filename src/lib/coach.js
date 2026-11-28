@@ -322,4 +322,27 @@ export function warmupRamp(work, bar = 20) {
   return sets.filter((s, i, a) => s.w < w && (i === 0 || s.w > a[i - 1].w));
 }
 
-export const isBarbell = (name) => /barbell|bench|squat|deadlift|overhead press|\bohp\b|row|hip thrust/i.test(name) && !/db|dumbbell|cable|machine|goblet|split/i.test(name);
+export const isBarbell = (name) => /barbell|bench|squat|deadlift|overhead press|\bohp\b|row|hip thrust/i.test(name) && !/db|dumbbell|cable|machine|goblet|split|hack|smith/i.test(name);
+export const isEzBar = (name) => /\bez\b|ez-?bar/i.test(name || '');
+
+export const BAR_KINDS = [
+  { value: 'straight', label: 'Straight' },
+  { value: 'ez', label: 'EZ bar' },
+  { value: 'other', label: 'Other' },
+  { value: 'none', label: 'No bar' },
+];
+const kgOr = (v, fallback) => (v === '' || v == null || Number.isNaN(Number(v)) ? fallback : Number(v));
+
+/**
+ * The bar an exercise is loaded on, so the plate calculator and warm-ups use the right one.
+ * The weight you log is always the total (bar + plates); this never adds the bar on top.
+ * `ex.bar` is 'straight' | 'ez' | 'other' | 'none'; unset means "guess from the name".
+ * Returns { kind, kg } or null for dumbbells, cables, machines and bodyweight.
+ */
+export function exerciseBar(ex, settings = {}) {
+  if (!ex || ex.bw) return null;
+  const kind = ex.bar && ex.bar !== 'auto' ? ex.bar : isEzBar(ex.name) ? 'ez' : isBarbell(ex.name) ? 'straight' : 'none';
+  if (kind === 'none') return null;
+  const kg = kind === 'ez' ? kgOr(settings.ezBarKg, 10) : kind === 'other' ? kgOr(ex.barKg, 0) : kgOr(settings.barKg, 20);
+  return { kind, kg };
+}

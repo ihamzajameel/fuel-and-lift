@@ -214,6 +214,12 @@ function SettingsMain() {
             <Field label={`Bicep goal (${unit})`}>
               <NumInput value={toLen(p.goals?.arm, unit) ?? ''} onChange={(v) => mutate((d) => (d.profile.goals = { ...(d.profile.goals || {}), arm: v === '' ? null : fromLen(v, unit) }))} suffix={unit} />
             </Field>
+            <Field label={`Waist goal at navel (${unit})`}>
+              <NumInput value={toLen(p.goals?.waist, unit) ?? ''} onChange={(v) => mutate((d) => (d.profile.goals = { ...(d.profile.goals || {}), waist: v === '' ? null : fromLen(v, unit) }))} suffix={unit} />
+            </Field>
+            <Field label={`Waist stretch goal (${unit})`}>
+              <NumInput value={toLen(p.goals?.waistStretch, unit) ?? ''} onChange={(v) => mutate((d) => (d.profile.goals = { ...(d.profile.goals || {}), waistStretch: v === '' ? null : fromLen(v, unit) }))} suffix={unit} />
+            </Field>
           </div>
           <Field label="Goal note" className="mt-3">
             <TextInput value={p.goal} onChange={(e) => setP('goal', e.target.value)} />
@@ -361,9 +367,14 @@ function SettingsMain() {
             <Row label="Keep screen awake" hint="During an active workout">
               <Toggle checked={s.keepAwake} onChange={(v) => setS('keepAwake', v)} label="Keep screen awake" />
             </Row>
-            <Row label="Barbell weight" hint="Used by the plate calculator">
+            <Row label="Straight bar" hint="Bench, rows, squats. Log weights as the total incl. the bar">
               <div className="w-24">
-                <NumInput value={s.barKg} onChange={(v) => setS('barKg', num(v))} suffix="kg" className="!h-10" />
+                <NumInput value={s.barKg} onChange={(v) => setS('barKg', num(v))} suffix="kg" className="!h-10" aria-label="Straight bar weight" />
+              </div>
+            </Row>
+            <Row label="EZ curl bar" hint="Curls, preacher curls, skull crushers">
+              <div className="w-24">
+                <NumInput value={s.ezBarKg} onChange={(v) => setS('ezBarKg', num(v))} suffix="kg" className="!h-10" aria-label="EZ bar weight" />
               </div>
             </Row>
           </div>

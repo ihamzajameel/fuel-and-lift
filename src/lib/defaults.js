@@ -2,7 +2,7 @@
 // Plan v2 (27 Nov 2026): lean bulk 74 → 80 kg while keeping belly fat down,
 // built around the real day: wake 10:30 AM, office 12–8:30 PM, gym ~10 PM, dinner at midnight, sleep 2 AM.
 
-export const PLAN_VERSION = 3;
+export const PLAN_VERSION = 4;
 
 export const DEFAULT_PROFILE = {
   age: 31,
@@ -14,7 +14,8 @@ export const DEFAULT_PROFILE = {
   goal: 'Lean bulk to 80 kg, keep belly fat down',
   goalType: 'lean_bulk', // lean_bulk | cut | recomp
   targetWeight: 80,
-  goals: { chest: 101.6, arm: 40.6, armStretch: 43.2 }, // cm: chest 40", bicep 16" (stretch 17")
+  // cm: chest 40", bicep 16" (stretch 17"), waist at the navel 32" (stretch 30")
+  goals: { chest: 101.6, arm: 40.6, armStretch: 43.2, waist: 81.28, waistStretch: 76.2 },
   wakeTime: '10:10',
   gymTime: '22:00',
   bedTime: '02:00',
@@ -43,7 +44,8 @@ export const DEFAULT_SETTINGS = {
   autoRest: true,
   keepAwake: true,
   dayStartHour: 4, // logs before 4 AM count toward the previous day
-  barKg: 20,
+  barKg: 20, // straight (Olympic) bar
+  ezBarKg: 10, // EZ curl bar
   measureUnit: 'in', // body measurements shown in inches (stored in cm)
 };
 
@@ -285,6 +287,14 @@ export const cloneProgram = (size) => {
   const t = PROGRAM_TEMPLATES[size];
   return { template: size, label: t.label, mode: t.mode || 'rotation', days: JSON.parse(JSON.stringify(t.days)) };
 };
+
+// ---------- Plan v4: waist goal at the navel (32", stretch 30") ----------
+export function applyPlanV4(d) {
+  const g = d.profile.goals || {};
+  if (g.waist == null) d.profile = { ...d.profile, goals: { ...g, waist: DEFAULT_PROFILE.goals.waist, waistStretch: g.waistStretch ?? DEFAULT_PROFILE.goals.waistStretch } };
+  d.meta = { ...d.meta, plan: 4 };
+  return d;
+}
 
 // ---------- Plan v3: date of birth, sleep 2:00–10:10, sleep & steps prompts ----------
 export function applyPlanV3(d) {

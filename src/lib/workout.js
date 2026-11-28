@@ -77,6 +77,7 @@ export function buildExercise(ex, sessions) {
     inc: ex.inc,
     planned: ex.sets,
     note: ex.note || '',
+    ...(ex.bar ? { bar: ex.bar, barKg: ex.barKg ?? '' } : {}),
     sets: Array.from({ length: ex.sets }, (_, i) => {
       const prev = last?.sets[i] || last?.sets[last.sets.length - 1];
       const w = hint.kind === 'up' && hint.weight ? hint.weight : prev?.w ?? '';
@@ -124,7 +125,7 @@ export function exerciseLibrary(program, templates, sessions) {
   for (const t of Object.values(templates)) for (const d of t.days) for (const ex of d.exercises) add(ex);
   for (const s of sessions)
     for (const e of s.exercises || [])
-      add({ id: e.exId, name: e.name, sets: e.planned || e.sets.length || 3, repMin: e.repMin ?? 8, repMax: e.repMax ?? 12, rest: e.rest ?? 90, inc: e.inc ?? 2.5, unit: e.unit || 'reps', bw: !!e.bw, note: e.note || '' });
+      add({ id: e.exId, name: e.name, sets: e.planned || e.sets.length || 3, repMin: e.repMin ?? 8, repMax: e.repMax ?? 12, rest: e.rest ?? 90, inc: e.inc ?? 2.5, unit: e.unit || 'reps', bw: !!e.bw, note: e.note || '', ...(e.bar ? { bar: e.bar, barKg: e.barKg ?? '' } : {}) });
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
