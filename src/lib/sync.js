@@ -190,7 +190,7 @@ function applyOne(d, e, byId) {
       break;
     }
     case 'food':
-      ops.logFood(d, day, { name: x.name || 'Quick add', qty: x.qty ?? 1, unit: x.unit || 'serving', kcal: x.kcal, p: x.p, c: x.c, f: x.f, id, at: e.at });
+      ops.logFood(d, day, { name: x.name || 'Quick add', qty: x.qty ?? 1, unit: x.unit || 'serving', kcal: x.kcal, p: x.p, c: x.c, f: x.f, presetId: x.presetId, id, at: e.at });
       break;
     case 'supp':
       ops.setSupp(d, day, x.id, x.value !== false);

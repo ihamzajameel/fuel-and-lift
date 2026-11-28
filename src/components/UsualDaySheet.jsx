@@ -5,7 +5,7 @@ import { useStore } from '../lib/store';
 import { useApp } from '../lib/app-context';
 import { Button, Sheet, cx, fmtNum } from './ui';
 import { reminderIcon } from './chrome';
-import { dayTimeline, isOccurrenceDone } from '../lib/reminders';
+import { dayTimeline, isOccurrenceDone, mealLabel, presetLogged, reminderChoices } from '../lib/reminders';
 import { fmt12, uid } from '../lib/time';
 import * as ops from '../lib/ops';
 
@@ -23,7 +23,7 @@ function buildPlan(state, dateKey, now) {
     const items = [];
     for (const pid of a.presetIds || []) {
       const p = presetById(pid);
-      if (p) items.push({ key: `${o.okey}|p|${pid}`, kind: 'preset', preset: p, label: p.name, sub: `${p.kcal} kcal · ${p.p} g P`, kcal: p.kcal, logged: (day.foods || []).some((f) => f.presetId === pid) });
+      if (p) items.push({ key: `${o.okey}|p|${pid}`, kind: 'preset', preset: p, label: p.name, sub: `${p.kcal} kcal · ${p.p} g P`, kcal: p.kcal, logged: presetLogged(day, pid, state.presets) });
     }
     if (a.waterMl) items.push({ key: `${o.okey}|w`, kind: 'water', ml: Number(a.waterMl), label: `${a.waterMl} ml water`, sub: 'Water', kcal: 0, logged: !!day.done?.[o.okey] });
     for (const sid of a.supplementIds || []) {
@@ -32,9 +32,9 @@ function buildPlan(state, dateKey, now) {
       const out = s.stock != null && s.stock !== '' && Number(s.stock) <= 0;
       items.push({ key: `${o.okey}|s|${sid}`, kind: 'supp', supp: s, label: s.name, sub: out ? 'Out of stock' : s.dose, kcal: 0, logged: !!day.supps?.[sid], out });
     }
-    const choices = (a.choosePresetIds || []).map(presetById).filter(Boolean);
+    const choices = reminderChoices(rem, state.presets);
     if (!items.length && !choices.length) continue;
-    groups.push({ occ: o, rem, done, past: o.at <= now, items, choices, chosenLogged: choices.find((p) => (day.foods || []).some((f) => f.presetId === p.id))?.id });
+    groups.push({ occ: o, rem, done, past: o.at <= now, items, choices, chosenLogged: choices.find((p) => presetLogged(day, p.id, state.presets))?.id });
   }
   return groups;
 }
@@ -48,19 +48,23 @@ export default function UsualDaySheet({ open, onClose, dateKey }) {
   // Selection: past, not-yet-logged items are ticked by default. Viewing a past day ticks everything.
   const isPastDay = key < today;
   const [sel, setSel] = useState(null);
-  const [dinner, setDinner] = useState(null);
+  // Meal picked per reminder (lunch, dinner): okey -> preset id, or null for "none". Missing = the default.
+  const [picks, setPicks] = useState({});
   const defaults = useMemo(() => {
     const m = {};
     for (const g of groups) for (const it of g.items) m[it.key] = !it.logged && !it.out && (g.past || isPastDay);
     return m;
   }, [groups, isPastDay]);
   const selected = sel || defaults;
-  const choiceGroup = groups.find((g) => g.choices.length);
-  const dinnerPick = dinner === undefined ? null : (dinner ?? (choiceGroup && !choiceGroup.chosenLogged && (choiceGroup.past || isPastDay) ? choiceGroup.choices[0].id : null));
+  const pickFor = (g) => (g.chosenLogged ? null : g.occ.okey in picks ? picks[g.occ.okey] : g.past || isPastDay ? g.choices[0].id : null);
+  const meals = groups.filter((g) => g.choices.length).flatMap((g) => {
+    const p = g.choices.find((c) => c.id === pickFor(g));
+    return p ? [{ g, p, id: `ud-${g.occ.okey}|meal` }] : [];
+  });
 
   const close = () => {
     setSel(null);
-    setDinner(null);
+    setPicks({});
     onClose();
   };
   const toggle = (k) => setSel({ ...selected, [k]: !selected[k] });
@@ -69,9 +73,8 @@ export default function UsualDaySheet({ open, onClose, dateKey }) {
   const setAll = (v) => setSel(Object.fromEntries(allKeys.map((k) => [k, v])));
 
   const chosen = groups.flatMap((g) => g.items.filter((i) => selected[i.key] && !i.logged).map((i) => ({ ...i, g })));
-  const dinnerPreset = choiceGroup?.choices.find((p) => p.id === dinnerPick);
-  const count = chosen.length + (dinnerPreset ? 1 : 0);
-  const kcal = chosen.reduce((a, i) => a + i.kcal, 0) + (dinnerPreset?.kcal || 0);
+  const count = chosen.length + meals.length;
+  const kcal = chosen.reduce((a, i) => a + i.kcal, 0) + meals.reduce((a, m) => a + m.p.kcal, 0);
 
   const logAll = () => {
     if (!count) return close();
@@ -85,16 +88,16 @@ export default function UsualDaySheet({ open, onClose, dateKey }) {
         else if (i.kind === 'water') ops.addWater(d, key, i.ml, id, atFor(i.g));
         else if (i.kind === 'supp') ops.setSupp(d, key, i.supp.id, true);
       }
-      if (dinnerPreset) ops.logPreset(d, key, dinnerPreset, `ud-${choiceGroup.occ.okey}|dinner`, atFor(choiceGroup));
+      for (const m of meals) ops.logPreset(d, key, m.p, m.id, atFor(m.g));
       // Mark a reminder done when everything in it is now logged.
       for (const g of groups) {
         const all = g.items.every((i) => i.logged || selected[i.key]);
-        const dinnerOk = !g.choices.length || g.chosenLogged || (dinnerPreset && g === choiceGroup);
-        if (all && dinnerOk) ops.markDone(d, key, g.occ.okey);
+        const mealOk = !g.choices.length || g.chosenLogged || meals.some((m) => m.g === g);
+        if (all && mealOk) ops.markDone(d, key, g.occ.okey);
       }
     });
     for (const i of chosen) if (i.kind !== 'supp') created.push({ kind: i.kind, id: `ud-${i.key}` });
-    if (dinnerPreset) created.push({ kind: 'preset', id: `ud-${choiceGroup.occ.okey}|dinner` });
+    for (const m of meals) created.push({ kind: 'preset', id: m.id });
     toast(`Logged ${count} item${count > 1 ? 's' : ''} · ${fmtNum(kcal)} kcal`, {
       label: 'Undo',
       run: () =>
@@ -161,17 +164,17 @@ export default function UsualDaySheet({ open, onClose, dateKey }) {
                 ))}
                 {g.choices.length > 0 && (
                   <div className="pt-1">
-                    <p className="mb-1.5 text-xs text-muted">{g.chosenLogged ? 'Dinner already logged' : 'Dinner tonight'}</p>
+                    <p className="mb-1.5 text-xs text-muted">{g.chosenLogged ? 'Meal already logged' : 'What did you eat?'}</p>
                     {!g.chosenLogged && (
                       <div className="flex flex-wrap gap-1.5">
                         {g.choices.map((p) => (
                           <button
                             key={p.id}
                             type="button"
-                            onClick={() => setDinner(dinnerPick === p.id ? undefined : p.id)}
-                            className={cx('h-9 rounded-full border px-3 text-sm font-medium', dinnerPick === p.id ? 'border-accent bg-accent/15 text-fg' : 'border-line text-muted')}
+                            onClick={() => setPicks({ ...picks, [g.occ.okey]: pickFor(g) === p.id ? null : p.id })}
+                            className={cx('h-9 rounded-full border px-3 text-sm font-medium', pickFor(g) === p.id ? 'border-accent bg-accent/15 text-fg' : 'border-line text-muted')}
                           >
-                            {p.name.replace(/^Dinner:\s*/, '')}
+                            {mealLabel(p.name)}
                           </button>
                         ))}
                       </div>

@@ -87,9 +87,11 @@ export function markMissed(d, key, okey, val = true) {
 }
 
 /** Run a reminder's linked quick actions (log preset, add water, tick supplements). */
-export function runReminderActions(d, key, reminder, okey, at) {
+/** Log everything a reminder covers. `choiceId` = the meal picked from its choices (lunch, dinner). */
+export function runReminderActions(d, key, reminder, okey, at, choiceId) {
   const a = reminder.actions || {};
-  for (const pid of a.presetIds || []) {
+  const picked = choiceId && (a.choosePresetIds || []).includes(choiceId) ? [choiceId] : [];
+  for (const pid of [...(a.presetIds || []), ...picked]) {
     const p = d.presets.find((x) => x.id === pid);
     if (p) logPreset(d, key, p, undefined, at);
   }

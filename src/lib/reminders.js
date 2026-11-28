@@ -105,20 +105,32 @@ export function routineConsistency(state, todayKey, n = 30) {
     .filter((x) => x.total > 0);
 }
 
+/** Was this preset eaten that day? Also matches a copy logged by name only (bot corrections, older logs). */
+export function presetLogged(day, pid, presets) {
+  const name = presets?.find((p) => p.id === pid)?.name?.toLowerCase();
+  return (day?.foods || []).some((f) => f.presetId === pid || (!f.presetId && name && String(f.name || '').toLowerCase() === name));
+}
+
 /** Is this reminder occurrence already satisfied by what's been logged? */
 export function isOccurrenceDone(rem, occ, state) {
   const day = state.days[occ.dayKey];
   if (!day) return false;
   if (day.done?.[occ.okey]) return true;
   const a = rem.actions || {};
-  if (a.presetIds?.length && (day.foods || []).some((f) => a.presetIds.includes(f.presetId))) return true;
+  if (a.presetIds?.length && a.presetIds.some((id) => presetLogged(day, id, state.presets))) return true;
   if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((s) => day.supps?.[s])) return true;
   if (a.openTab === 'train' && state.sessions.some((s) => s.date === occ.dayKey && !s.rest)) return true;
-  if (a.choosePresetIds?.length && !a.supplementIds?.length && (day.foods || []).some((f) => a.choosePresetIds.includes(f.presetId))) return true;
+  if (a.choosePresetIds?.length && !a.supplementIds?.length && a.choosePresetIds.some((id) => presetLogged(day, id, state.presets))) return true;
   if (a.sleepUsual && day.sleep?.hours) return true;
   if (a.stepsPrompt && day.steps != null) return true;
   return false;
 }
+
+/** A meal choice's button label: "Lunch: Roti + Chana Daal" -> "Roti + Chana Daal". */
+export const mealLabel = (name) => String(name || '').replace(/^(breakfast|lunch|dinner):\s*/i, '');
+
+/** The meals a reminder lets you pick from (lunch, dinner). */
+export const reminderChoices = (rem, presets) => (rem?.actions?.choosePresetIds || []).map((id) => presets.find((p) => p.id === id)).filter(Boolean);
 
 export const describeActions = (rem, presets, supplements) => {
   const a = rem.actions || {};

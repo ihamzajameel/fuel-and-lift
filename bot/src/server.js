@@ -198,7 +198,7 @@ async function sendReminder(rem, okey, snoozed = false) {
   } else {
     const choices = (rem.actions?.choosePresetIds || []).map((id) => (s.presets || []).find((p) => p.id === id)).filter(Boolean);
     const btns = choices
-      .map((p) => ({ text: `🍽️ ${p.name.replace(/^Dinner:\s*/, '')}`, callback_data: `c|${p.id}|${okey}` }))
+      .map((p) => ({ text: `🍽️ ${p.name.replace(/^(breakfast|lunch|dinner):\s*/i, '')}`, callback_data: `c|${p.id}|${okey}` }))
       .filter((b) => fits(b.callback_data));
     for (let i = 0; i < btns.length; i += 2) rows.push(btns.slice(i, i + 2));
     const parts = describeActions(rem, s);

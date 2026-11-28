@@ -26,7 +26,7 @@ import { useApp } from '../lib/app-context';
 import { useStore } from '../lib/store';
 import { cx } from './ui';
 import { fmtDuration, fmtTime } from '../lib/time';
-import { describeActions } from '../lib/reminders';
+import { describeActions, mealLabel, reminderChoices } from '../lib/reminders';
 import { buzz, chime, showSystemNotification } from '../lib/notify';
 
 export const REMINDER_ICONS = { coffee: Coffee, cup: Coffee, droplet: Droplet, salad: Salad, egg: Egg, zap: Zap, dumbbell: Dumbbell, utensils: Utensils, moon: Moon, pill: Pill, nut: Nut, ruler: Ruler, footprints: Footprints, bell: BellRing };
@@ -82,6 +82,7 @@ export function ReminderBanner() {
   const parts = describeActions(rem, state.presets, state.supplements).map((p) => (rem.dynamic === 'water' && /ml water/.test(p) ? `${b.ask || 250} ml water` : p));
   const opensTrain = rem.actions?.openTab === 'train';
   const asksSteps = rem.actions?.stepsPrompt;
+  const choices = reminderChoices(rem, state.presets);
   return (
     <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-40 px-3">
       <div
@@ -105,6 +106,20 @@ export function ReminderBanner() {
             <X size={18} />
           </button>
         </div>
+        {choices.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {choices.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => actOnBanner(b, 'log', p.id)}
+                className="press inline-flex min-h-10 max-w-full items-center gap-1.5 rounded-xl bg-accent px-3.5 py-1.5 text-left text-sm font-semibold leading-snug text-on-accent"
+              >
+                <Utensils size={16} className="shrink-0" /> {mealLabel(p.name)}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap gap-2">
           {asksSteps ? (
             <button type="button" onClick={() => actOnBanner(b, 'today')} className="press inline-flex h-10 items-center gap-1.5 rounded-xl bg-accent px-3.5 text-sm font-semibold text-on-accent">
@@ -115,8 +130,15 @@ export function ReminderBanner() {
               <Dumbbell size={16} /> Open workout
             </button>
           ) : parts.length ? (
-            <button type="button" onClick={() => actOnBanner(b, 'log')} className="press inline-flex h-10 max-w-full items-center gap-1.5 rounded-xl bg-accent px-3.5 text-sm font-semibold text-on-accent">
-              <Check size={16} className="shrink-0" /> <span className="truncate">Log {parts.join(' + ')}</span>
+            <button
+              type="button"
+              onClick={() => actOnBanner(b, 'log')}
+              className={cx(
+                'press inline-flex h-10 max-w-full items-center gap-1.5 rounded-xl px-3.5 text-sm font-semibold',
+                choices.length ? 'border border-line bg-surface-3 font-medium' : 'bg-accent text-on-accent'
+              )}
+            >
+              <Check size={16} className="shrink-0" /> <span className="truncate">{choices.length ? 'Only' : 'Log'} {parts.join(' + ')}</span>
             </button>
           ) : null}
           <button type="button" onClick={() => actOnBanner(b, 'done')} className="press h-10 rounded-xl border border-line bg-surface-3 px-3.5 text-sm font-medium">

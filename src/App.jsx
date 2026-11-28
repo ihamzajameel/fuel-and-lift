@@ -197,13 +197,13 @@ function Shell() {
   const dismissBanner = useCallback((okey) => setBanners((b) => b.filter((x) => x.okey !== okey)), []);
 
   const actOnBanner = useCallback(
-    (b, what) => {
+    (b, what, choiceId) => {
       const rem = latest.current.reminders.find((r) => r.id === b.id);
       const key = b.dayKey;
       const base = b.baseKey || b.okey;
       if (what === 'log' && rem) {
         const r = rem.dynamic === 'water' ? { ...rem, actions: { ...rem.actions, waterMl: b.ask || rem.actions.waterMl } } : rem;
-        mutate((d) => ops.runReminderActions(d, key, r, base));
+        mutate((d) => ops.runReminderActions(d, key, r, base, undefined, choiceId));
         toast('Logged. Nice work.');
       } else if (what === 'done') {
         mutate((d) => ops.markDone(d, key, base));

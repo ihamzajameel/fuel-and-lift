@@ -9,7 +9,7 @@ import PhotoButton from '../components/PhotoButton';
 import SleepEditor from '../components/SleepEditor';
 import { reminderIcon } from '../components/chrome';
 import { dayTotals, fmtL, paceStatus, waterPaceTarget } from '../lib/nutrition';
-import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed } from '../lib/reminders';
+import { dayTimeline, describeActions, isOccurrenceDone, isOccurrenceMissed, mealLabel, reminderChoices } from '../lib/reminders';
 import { dailyScore, insights } from '../lib/coach';
 import { currentStreak } from '../lib/stats';
 import { nextDayIndex, sessionStats } from '../lib/workout';
@@ -256,10 +256,10 @@ function PlanCard() {
   };
   const expanded = open ?? nextKey;
 
-  const act = (i) => {
+  const act = (i, choice) => {
     if (i.rem.actions?.openTab) return go(i.rem.actions.openTab);
-    mutate((d) => ops.runReminderActions(d, today, i.rem, i.okey));
-    toast(`Logged: ${i.rem.title}`);
+    mutate((d) => ops.runReminderActions(d, today, i.rem, i.okey, undefined, choice?.id));
+    toast(`Logged: ${choice ? mealLabel(choice.name) : i.rem.title}`);
   };
 
   if (!items.length)
@@ -325,6 +325,7 @@ function PlanCard() {
           const past = i.at < now;
           const isOpen = expanded === i.okey && !i.interval;
           const actions = describeActions(i.rem, state.presets, state.supplements);
+          const choices = reminderChoices(i.rem, state.presets);
           return (
             <li key={i.okey} className="relative flex gap-3">
               {idx < items.length - 1 && <span className="absolute top-10 bottom-0 left-[61px] w-px bg-line" aria-hidden />}
@@ -358,17 +359,36 @@ function PlanCard() {
                 {isOpen && (
                   <div className="anim-fade mt-1 rounded-xl bg-surface-2 p-3">
                     <p className="text-sm text-muted">{i.rem.body}</p>
+                    {!i.done && !i.missed && choices.length > 0 && (
+                      <div className="mt-3">
+                        <p className="mb-1.5 text-xs text-muted">What did you eat?</p>
+                        <div className="flex flex-wrap gap-2">
+                          {choices.map((p) => (
+                            <Button
+                              key={p.id}
+                              variant="primary"
+                              size="sm"
+                              icon={Utensils}
+                              onClick={() => act(i, p)}
+                              className="!h-auto min-h-9 max-w-full !justify-start py-1.5 text-left leading-snug !whitespace-normal"
+                            >
+                              {`${mealLabel(p.name)} · ${p.kcal} kcal`}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {!i.done && !i.missed && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {(actions.length > 0 || i.rem.actions?.openTab) && (
                           <Button
-                            variant={i.rem.actions?.openTab ? 'lift' : 'primary'}
+                            variant={i.rem.actions?.openTab ? 'lift' : choices.length ? undefined : 'primary'}
                             size="sm"
                             icon={i.rem.actions?.openTab ? Dumbbell : Check}
                             onClick={() => act(i)}
                             className="!h-auto min-h-9 max-w-full !justify-start py-1.5 text-left leading-snug !whitespace-normal"
                           >
-                            {i.rem.actions?.openTab ? 'Open workout' : `Log ${actions.join(' + ')}`}
+                            {i.rem.actions?.openTab ? 'Open workout' : `${choices.length ? 'Only' : 'Log'} ${actions.join(' + ')}`}
                           </Button>
                         )}
                         <Button size="sm" onClick={() => mutate((d) => ops.markDone(d, today, i.okey))}>

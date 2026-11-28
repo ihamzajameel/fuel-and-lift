@@ -170,6 +170,7 @@ export function isDone(rem, okey, v) {
   if (a.presetIds?.length && a.presetIds.some((id) => v.presetIds.has(id))) return true;
   if (!a.presetIds?.length && a.supplementIds?.length && a.supplementIds.every((id) => v.supps[id])) return true;
   if (a.openTab === 'train' && v.trained) return true;
+  if (a.choosePresetIds?.length && !a.supplementIds?.length && a.choosePresetIds.some((id) => v.presetIds.has(id))) return true;
   if (a.sleepUsual && v.sleep != null) return true;
   if (a.stepsPrompt && v.steps != null) return true;
   return false;

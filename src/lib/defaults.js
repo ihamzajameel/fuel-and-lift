@@ -2,7 +2,7 @@
 // Plan v2 (27 Nov 2026): lean bulk 74 → 80 kg while keeping belly fat down,
 // built around the real day: wake 10:30 AM, office 12–8:30 PM, gym ~10 PM, dinner at midnight, sleep 2 AM.
 
-export const PLAN_VERSION = 5;
+export const PLAN_VERSION = 6;
 
 export const DEFAULT_PROFILE = {
   age: 31,
@@ -72,6 +72,7 @@ export const DEFAULT_PRESETS = [
   },
   { id: 'coffee', name: 'Black Coffee', detail: '1 cup, no sugar or milk', qty: 1, unit: 'cup', kcal: 5, p: 0.3, c: 0, f: 0 },
   { id: 'lunch', name: 'Lunch: Rice Bowl + Chicken Leg', detail: 'Estimate: ~1.5 cups rice + 1 leg piece', qty: 1, unit: 'serving', kcal: 650, p: 33, c: 75, f: 20 },
+  { id: 'lunch-roti-chana', name: 'Lunch: Roti + Chana Daal', detail: '2 roti + 1 bowl chana daal', qty: 1, unit: 'serving', kcal: 490, p: 19, c: 73, f: 13 },
   { id: 'eggs', name: '2 Boiled Eggs (1 whole + 1 white)', detail: '6 PM snack', qty: 1, unit: 'serving', kcal: 90, p: 10, c: 1, f: 5 },
   { id: 'nuts', name: 'Mixed Nuts (½ handful)', detail: 'Almonds, cashews, pistachios ~20 g', qty: 20, unit: 'g', kcal: 115, p: 4, c: 5, f: 10 },
   { id: 'dates', name: '2 Dates', detail: 'Pre-gym fuel', qty: 2, unit: 'piece', kcal: 130, p: 1, c: 35, f: 0 },
@@ -97,11 +98,13 @@ const R = (id, title, time, body, icon, actions, extra = {}) => ({
   ...extra,
 });
 
+const LUNCH_BODY = 'Rice bowl + chicken, or 2 roti + chana daal. Drink 500 ml water 30 min before or after.';
+
 export const DEFAULT_REMINDERS = [
   R('morning', 'Morning shake', '10:45', '500 ml milk + 1 banana + 5 tbsp oats + ½ tbsp peanut butter + 1 tbsp each chia, alsi, sunflower & pumpkin seeds + 1 scoop ON Whey.', 'coffee', { presetIds: ['shake'] }),
   R('water-1230', '500 ml water', '12:30', 'First water of the day. Finish the bottle.', 'droplet', { waterMl: 500 }),
   R('coffee', 'Black coffee', '13:00', 'Your daily black coffee. At 1 PM it has worn off well before your 2 AM bedtime.', 'cup', { presetIds: ['coffee'] }),
-  R('lunch', 'Lunch + 500 ml water', '16:00', 'Rice bowl + chicken. Drink 500 ml water 30 min before or after.', 'salad', { presetIds: ['lunch'], waterMl: 500 }),
+  R('lunch', 'Lunch + 500 ml water', '16:00', LUNCH_BODY, 'salad', { waterMl: 500, choosePresetIds: ['lunch', 'lunch-roti-chana'] }),
   R('eggs', '2 boiled eggs + Vitamin C', '18:00', '1 whole egg + 1 egg white, and 1 Vitamin C capsule.', 'egg', { presetIds: ['eggs'], supplementIds: ['vitc'] }),
   R('nuts', 'Nuts', '18:45', 'Half a handful: almonds, cashews, pistachios.', 'nut', { presetIds: ['nuts'] }),
   R('water-1930', '500 ml water before 8 PM', '19:30', 'Get it in before you leave the office.', 'droplet', { waterMl: 500 }),
@@ -289,6 +292,22 @@ export const cloneProgram = (size) => {
   const t = PROGRAM_TEMPLATES[size];
   return { template: size, label: t.label, mode: t.mode || 'rotation', days: JSON.parse(JSON.stringify(t.days)) };
 };
+
+// ---------- Plan v6: lunch is a choice (rice bowl + chicken, or roti + chana daal) ----------
+export function applyPlanV6(d) {
+  if (!d.presets.some((p) => p.id === 'lunch-roti-chana')) {
+    const at = d.presets.findIndex((p) => p.id === 'lunch');
+    d.presets.splice(at >= 0 ? at + 1 : d.presets.length, 0, { ...DEFAULT_PRESETS.find((p) => p.id === 'lunch-roti-chana') });
+  }
+  const r = d.reminders.find((x) => x.id === 'lunch');
+  const a = r?.actions || {};
+  if (r && !a.choosePresetIds?.length && (a.presetIds || []).includes('lunch')) {
+    r.actions = { ...a, presetIds: a.presetIds.filter((id) => id !== 'lunch'), choosePresetIds: ['lunch', 'lunch-roti-chana'] };
+    if (r.body === 'Rice bowl + chicken. Drink 500 ml water 30 min before or after.') r.body = LUNCH_BODY;
+  }
+  d.meta = { ...d.meta, plan: 6 };
+  return d;
+}
 
 // ---------- Plan v5: daily black coffee at 1 PM (preset + reminder) ----------
 export function applyPlanV5(d) {
