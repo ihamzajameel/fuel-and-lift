@@ -237,10 +237,23 @@ function PlanCard() {
         out.push({ ...o, rem, done: isOccurrenceDone(rem, o, state), missed: isOccurrenceMissed(o, state) });
       }
     }
-    return out;
+    // Food outside the routine (extras, photo logs) slots in at the time it was logged.
+    const routineIds = new Set(
+      state.reminders.filter((r) => r.enabled).flatMap((r) => [...(r.actions?.presetIds || []), ...(r.actions?.choosePresetIds || [])])
+    );
+    const routineNames = new Set(state.presets.filter((p) => routineIds.has(p.id)).map((p) => p.name.toLowerCase()));
+    for (const f of state.days[today]?.foods || []) {
+      const routine = f.presetId ? routineIds.has(f.presetId) : routineNames.has(String(f.name || '').toLowerCase());
+      if (!routine) out.push({ okey: `food:${f.id}`, at: f.at || 0, extra: true, food: f });
+    }
+    return out.sort((a, b) => a.at - b.at);
   }, [state, today, start, now]);
 
-  const nextKey = items.find((i) => !i.interval && !i.done && !i.missed && i.at > now - 30 * 60e3)?.okey;
+  const nextKey = items.find((i) => !i.extra && !i.interval && !i.done && !i.missed && i.at > now - 30 * 60e3)?.okey;
+  const removeExtra = (f) => {
+    mutate((d) => ops.removeFood(d, today, f.id));
+    toast(`Removed ${f.name}`, { label: 'Undo', run: () => mutate((d) => ops.logFood(d, today, { ...f })) });
+  };
   const expanded = open ?? nextKey;
 
   const act = (i) => {
@@ -268,6 +281,45 @@ function PlanCard() {
     >
       <ol className="relative">
         {items.map((i, idx) => {
+          if (i.extra) {
+            const f = i.food;
+            const isOpen = open === i.okey;
+            return (
+              <li key={i.okey} className="relative flex gap-3">
+                {idx < items.length - 1 && <span className="absolute top-10 bottom-0 left-[61px] w-px bg-line" aria-hidden />}
+                <span className="tnum w-11 shrink-0 pt-2.5 text-right text-xs text-muted">{fmtTime(i.at).replace(' ', '\u00a0')}</span>
+                <span className="z-[1] mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-carbs/60 bg-carbs/15 text-carbs">
+                  <Plus size={16} strokeWidth={3} />
+                </span>
+                <div className="min-w-0 flex-1 pb-3">
+                  <button type="button" onClick={() => setOpen(isOpen ? '' : i.okey)} className="flex min-h-10 w-full items-center justify-between gap-2 text-left" aria-expanded={isOpen}>
+                    <span className="min-w-0 leading-tight">
+                      <span className="block truncate font-medium">{f.name}</span>
+                      <span className="tnum block text-xs text-muted">
+                        Extra · {fmtNum(f.kcal)} kcal · {Math.round(f.p || 0)} g protein
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-carbs/15 px-2 py-0.5 text-[11px] font-semibold text-carbs">EXTRA</span>
+                  </button>
+                  {isOpen && (
+                    <div className="anim-fade mt-1 rounded-xl bg-surface-2 p-3">
+                      <p className="tnum text-sm text-muted">
+                        {f.qty} {f.unit} · {fmtNum(f.kcal)} kcal · P {Math.round(f.p || 0)} · C {Math.round(f.c || 0)} · F {Math.round(f.f || 0)}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" onClick={() => go('food')}>
+                          Edit in Food
+                        </Button>
+                        <Button size="sm" variant="ghost" icon={X} className="text-danger" onClick={() => removeExtra(f)}>
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          }
           const Icon = reminderIcon(i.rem.icon);
           const isNext = i.okey === nextKey;
           const past = i.at < now;
